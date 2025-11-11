@@ -7,6 +7,16 @@ output "vpc_id" {
   value       = module.network.vpc_id
 }
 
+output "s3_bucket_name" {
+  description = "S3 bucket name for Kubernetes config"
+  value       = aws_s3_bucket.k8s_config.id
+}
+
+output "s3_bucket_arn" {
+  description = "S3 bucket ARN for Kubernetes config"
+  value       = aws_s3_bucket.k8s_config.arn
+}
+
 output "public_subnet_ids" {
   description = "IDs of public subnets"
   value       = module.network.public_subnet_ids
@@ -82,12 +92,12 @@ output "repo_public_ip" {
 # AMI information
 output "ami_id" {
   description = "AMI ID used for instances"
-  value       = data.aws_ami.amazon_linux.id
+  value       = data.aws_ami.ubuntu.id
 }
 
 output "ami_name" {
   description = "AMI name"
-  value       = data.aws_ami.amazon_linux.name
+  value       = data.aws_ami.ubuntu.name
 }
 
 # Kubernetes cluster information

@@ -1,5 +1,20 @@
 # EC2 module variables
 
+variable "s3_bucket_name" {
+  description = "S3 bucket name for storing join commands"
+  type        = string
+}
+
+variable "s3_bucket_arn" {
+  description = "S3 bucket ARN for IAM policy"
+  type        = string
+}
+
+variable "aws_region" {
+  description = "AWS region for SSM parameter store"
+  type        = string
+}
+
 variable "project_name" {
   description = "Project name for resource naming"
   type        = string

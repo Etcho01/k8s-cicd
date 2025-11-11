@@ -1,243 +1,85 @@
 # EC2 module - Kubernetes cluster instances
-# Provisions master nodes, worker nodes, and private repository host
+# S3 bucket is created in root module and passed in
 
-# User data template for Kubernetes master nodes
 locals {
-  master_user_data = <<-EOF
-    #!/bin/bash
-    set -eux
-    
-    # Log all output to file for debugging
-    exec > >(tee /var/log/user-data.log)
-    exec 2>&1
-    
-    echo "=== Starting Kubernetes Master Node Setup ==="
-    
-    # Update system packages
-    yum update -y
-    
-    # Disable swap (required for Kubernetes)
-    swapoff -a
-    sed -i '/swap/d' /etc/fstab
-    
-    # Load required kernel modules
-    modprobe overlay
-    modprobe br_netfilter
-    
-    # Persist kernel modules on reboot
-    cat <<MODULES | tee /etc/modules-load.d/k8s.conf
-    overlay
-    br_netfilter
-    MODULES
-    
-    # Configure kernel parameters for Kubernetes
-    cat <<SYSCTL | tee /etc/sysctl.d/k8s.conf
-    net.bridge.bridge-nf-call-iptables  = 1
-    net.ipv4.ip_forward                 = 1
-    net.bridge.bridge-nf-call-ip6tables = 1
-    SYSCTL
-    
-    # Apply sysctl parameters
-    sysctl --system
-    
-    # Install container runtime prerequisites
-    yum install -y yum-utils device-mapper-persistent-data lvm2
-    
-    # Add Docker CE repository
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    
-    # Install containerd
-    yum install -y containerd.io
-    
-    # Configure containerd
-    mkdir -p /etc/containerd
-    containerd config default | tee /etc/containerd/config.toml
-    
-    # Configure containerd to use systemd cgroup driver (required for Kubernetes)
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    
-    # Enable and start containerd
-    systemctl enable --now containerd
-    
-    # Add Kubernetes repository
-    cat <<REPO | tee /etc/yum.repos.d/kubernetes.repo
-    [kubernetes]
-    name=Kubernetes
-    baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
-    enabled=1
-    gpgcheck=1
-    gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
-    exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
-    REPO
-    
-    # Install Kubernetes components
-    yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-    
-    # Enable kubelet service
-    systemctl enable --now kubelet
-    
-    # Initialize Kubernetes control plane (only on first master)
-    # Pod network CIDR for Flannel: 10.244.0.0/16
-    HOSTNAME=$(hostname -f)
-    IPADDR=$(hostname -I | awk '{print $1}')
-    
-    echo "=== Initializing Kubernetes cluster ==="
-    kubeadm init \
-      --pod-network-cidr=10.244.0.0/16 \
-      --apiserver-advertise-address=$IPADDR \
-      --node-name=$HOSTNAME
-    
-    # Configure kubectl for root user
-    export KUBECONFIG=/etc/kubernetes/admin.conf
-    echo "export KUBECONFIG=/etc/kubernetes/admin.conf" >> /root/.bashrc
-    
-    # Configure kubectl for ec2-user
-    mkdir -p /home/ec2-user/.kube
-    cp /etc/kubernetes/admin.conf /home/ec2-user/.kube/config
-    chown -R ec2-user:ec2-user /home/ec2-user/.kube
-    
-    # Wait for API server to be ready
-    echo "=== Waiting for API server ==="
-    until kubectl get nodes; do
-      echo "Waiting for API server..."
-      sleep 5
-    done
-    
-    # Install Flannel pod network
-    echo "=== Installing Flannel CNI ==="
-    kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
-    
-    # Generate join command and save it
-    kubeadm token create --print-join-command > /tmp/kubeadm_join_command.sh
-    chmod +x /tmp/kubeadm_join_command.sh
-    
-    # Save join command to a publicly accessible location (for demo purposes)
-    # In production, use AWS Systems Manager Parameter Store or Secrets Manager
-    cp /tmp/kubeadm_join_command.sh /home/ec2-user/join_command.sh
-    chown ec2-user:ec2-user /home/ec2-user/join_command.sh
-    
-    echo "=== Kubernetes Master Setup Complete ==="
-    EOF
+  master_init_user_data = templatefile("${path.module}/../../scripts/master_setup.sh", {
+    s3_bucket  = var.s3_bucket_name
+    aws_region = var.aws_region
+  })
 
-  worker_user_data = <<-EOF
-    #!/bin/bash
-    set -eux
-    
-    # Log all output to file for debugging
-    exec > >(tee /var/log/user-data.log)
-    exec 2>&1
-    
-    echo "=== Starting Kubernetes Worker Node Setup ==="
-    
-    # Update system packages
-    yum update -y
-    
-    # Disable swap (required for Kubernetes)
-    swapoff -a
-    sed -i '/swap/d' /etc/fstab
-    
-    # Load required kernel modules
-    modprobe overlay
-    modprobe br_netfilter
-    
-    # Persist kernel modules on reboot
-    cat <<MODULES | tee /etc/modules-load.d/k8s.conf
-    overlay
-    br_netfilter
-    MODULES
-    
-    # Configure kernel parameters for Kubernetes
-    cat <<SYSCTL | tee /etc/sysctl.d/k8s.conf
-    net.bridge.bridge-nf-call-iptables  = 1
-    net.ipv4.ip_forward                 = 1
-    net.bridge.bridge-nf-call-ip6tables = 1
-    SYSCTL
-    
-    # Apply sysctl parameters
-    sysctl --system
-    
-    # Install container runtime prerequisites
-    yum install -y yum-utils device-mapper-persistent-data lvm2
-    
-    # Add Docker CE repository
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    
-    # Install containerd
-    yum install -y containerd.io
-    
-    # Configure containerd
-    mkdir -p /etc/containerd
-    containerd config default | tee /etc/containerd/config.toml
-    
-    # Configure containerd to use systemd cgroup driver (required for Kubernetes)
-    sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-    
-    # Enable and start containerd
-    systemctl enable --now containerd
-    
-    # Add Kubernetes repository
-    cat <<REPO | tee /etc/yum.repos.d/kubernetes.repo
-    [kubernetes]
-    name=Kubernetes
-    baseurl=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/
-    enabled=1
-    gpgcheck=1
-    gpgkey=https://pkgs.k8s.io/core:/stable:/v1.30/rpm/repodata/repomd.xml.key
-    exclude=kubelet kubeadm kubectl cri-tools kubernetes-cni
-    REPO
-    
-    # Install Kubernetes components
-    yum install -y kubelet kubeadm kubectl --disableexcludes=kubernetes
-    
-    # Enable kubelet service
-    systemctl enable --now kubelet
-    
-    # Note: Worker nodes need to join the cluster using the command from master
-    # To join: ssh to master1, get the join command, then execute on this worker
-    # Example: kubeadm join <master-ip>:6443 --token <token> --discovery-token-ca-cert-hash sha256:<hash>
-    
-    echo "=== Kubernetes Worker Node Setup Complete ==="
-    echo "=== To join cluster, run the join command from master node ==="
-    EOF
+  master_join_user_data = templatefile("${path.module}/../../scripts/master_join.sh", {
+    s3_bucket  = var.s3_bucket_name
+    aws_region = var.aws_region
+  })
 
-  repo_user_data = <<-EOF
-    #!/bin/bash
-    set -eux
-    
-    # Log all output to file for debugging
-    exec > >(tee /var/log/user-data.log)
-    exec 2>&1
-    
-    echo "=== Starting Private Repository Host Setup ==="
-    
-    # Update system packages
-    yum update -y
-    
-    # Install Docker for hosting container registry
-    yum install -y yum-utils device-mapper-persistent-data lvm2
-    yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-    yum install -y docker-ce docker-ce-cli containerd.io
-    
-    # Start Docker
-    systemctl enable --now docker
-    
-    # Install Docker Registry
-    docker run -d \
-      -p 5000:5000 \
-      --restart=always \
-      --name registry \
-      -v /mnt/registry:/var/lib/registry \
-      registry:2
-    
-    # Install Git for repository management
-    yum install -y git
-    
-    # Install additional tools
-    yum install -y htop vim wget curl
-    
-    echo "=== Private Repository Host Setup Complete ==="
-    echo "=== Docker Registry available at: http://$(hostname -I | awk '{print $1}'):5000 ==="
-    EOF
+  worker_user_data = templatefile("${path.module}/../../scripts/worker_setup.sh", {
+    s3_bucket  = var.s3_bucket_name
+    aws_region = var.aws_region
+  })
+
+  repo_user_data = file("${path.module}/../../scripts/repo_setup.sh")
+}
+
+# IAM Role for EC2 instances
+resource "aws_iam_role" "k8s_node_role" {
+  name_prefix = "${var.project_name}-${var.environment}-k8s-node-"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ec2.amazonaws.com"
+        }
+      }
+    ]
+  })
+
+  tags = merge(
+    var.common_tags,
+    {
+      Name = "${var.project_name}-${var.environment}-k8s-node-role"
+    }
+  )
+}
+
+# IAM Policy for S3 access (simpler than SSM)
+resource "aws_iam_role_policy" "k8s_s3_policy" {
+  name_prefix = "${var.project_name}-s3-"
+  role        = aws_iam_role.k8s_node_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:GetObject",
+          "s3:PutObject",
+          "s3:ListBucket"
+        ]
+        Resource = [
+          var.s3_bucket_arn,
+          "${var.s3_bucket_arn}/*"
+        ]
+      }
+    ]
+  })
+}
+
+# IAM Instance Profile
+resource "aws_iam_instance_profile" "k8s_node_profile" {
+  name_prefix = "${var.project_name}-${var.environment}-k8s-node-"
+  role        = aws_iam_role.k8s_node_role.name
+
+  tags = merge(
+    var.common_tags,
+    {
+      Name = "${var.project_name}-${var.environment}-k8s-node-profile"
+    }
+  )
 }
 
 # EC2 Instances: Kubernetes Master Nodes
@@ -249,8 +91,17 @@ resource "aws_instance" "master" {
   key_name               = var.key_name
   subnet_id              = var.public_subnet_ids[count.index % length(var.public_subnet_ids)]
   vpc_security_group_ids = [var.k8s_security_group_id]
+  iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
 
-  user_data = count.index == 0 ? local.master_user_data : ""
+  # First master initializes, others join
+  user_data = count.index == 0 ? local.master_init_user_data : local.master_join_user_data
+
+  # Explicit dependency on IAM resources
+  depends_on = [
+    aws_iam_role.k8s_node_role,
+    aws_iam_instance_profile.k8s_node_profile,
+    aws_iam_role_policy.k8s_s3_policy
+  ]
 
   root_block_device {
     volume_type           = var.root_volume_type
@@ -287,6 +138,7 @@ resource "aws_instance" "worker" {
   key_name               = var.key_name
   subnet_id              = var.public_subnet_ids[count.index % length(var.public_subnet_ids)]
   vpc_security_group_ids = [var.k8s_security_group_id]
+  iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
 
   user_data = local.worker_user_data
 
@@ -305,6 +157,14 @@ resource "aws_instance" "worker" {
     http_tokens                 = "required"
     http_put_response_hop_limit = 1
   }
+
+  # Wait for first master to initialize
+  depends_on = [
+    aws_instance.master[0],
+    aws_iam_role.k8s_node_role,
+    aws_iam_instance_profile.k8s_node_profile,
+    aws_iam_role_policy.k8s_s3_policy
+  ]
 
   tags = merge(
     var.common_tags,
