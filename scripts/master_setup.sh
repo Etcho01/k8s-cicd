@@ -1,7 +1,6 @@
 #!/bin/bash
 # Kubernetes Master Node Setup - Ubuntu 22.04 LTS
-# Following official Kubernetes documentation exactly
-# https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+# Following official Kubernetes documentation for HA setup
 
 set -euxo pipefail
 exec > >(tee /var/log/user-data.log) 2>&1
@@ -11,6 +10,11 @@ echo "=== [$(date)] Kubernetes Master Setup Started ==="
 # Variables from Terraform
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
+CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+
+echo "S3 Bucket: $${S3_BUCKET}"
+echo "AWS Region: $${AWS_REGION}"
+echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
 
 # Update system
 apt-get update
@@ -41,48 +45,41 @@ EOF
 
 sysctl --system
 
-# Install containerd (official method)
+# Install containerd
 apt-get install -y containerd
-
-# Configure containerd
 mkdir -p /etc/containerd
 containerd config default | tee /etc/containerd/config.toml
-
-# Enable SystemdCgroup (required for kubelet)
 sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-
-# Restart containerd
 systemctl restart containerd
 systemctl enable containerd
-
-# Verify containerd
 systemctl status containerd --no-pager
 
-# Add Kubernetes apt repository (official method)
+# Add Kubernetes apt repository
+mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
-
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
 
-# Update apt and install Kubernetes components
+# Install Kubernetes components
 apt-get update
 apt-get install -y kubelet=1.30.0-1.1 kubeadm=1.30.0-1.1 kubectl=1.30.0-1.1
 apt-mark hold kubelet kubeadm kubectl
-
-# Enable kubelet
 systemctl enable --now kubelet
 
 # Get instance info
 IPADDR=$(hostname -I | awk '{print $1}')
 HOSTNAME=$(hostname -f)
 
-echo "Instance IP: $IPADDR"
-echo "Hostname: $HOSTNAME"
+echo "Instance IP: $${IPADDR}"
+echo "Hostname: $${HOSTNAME}"
 
-# Initialize Kubernetes (official command)
+# Initialize Kubernetes with NLB DNS as control-plane-endpoint (enables HA)
+echo "=== Initializing Kubernetes cluster with HA support ==="
 kubeadm init \
+  --control-plane-endpoint="$${CONTROL_PLANE_ENDPOINT}" \
+  --upload-certs \
   --pod-network-cidr=10.244.0.0/16 \
-  --apiserver-advertise-address=$IPADDR \
-  --node-name=$HOSTNAME
+  --apiserver-advertise-address=$${IPADDR} \
+  --node-name=$${HOSTNAME}
 
 # Configure kubectl for root
 export KUBECONFIG=/etc/kubernetes/admin.conf
@@ -100,7 +97,7 @@ until kubectl cluster-info 2>/dev/null; do
 done
 echo "✓ API server ready"
 
-# Install Flannel CNI (official method)
+# Install Flannel CNI
 kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
 
 # Wait for node to be Ready
@@ -111,59 +108,82 @@ done
 echo "✓ Node is Ready"
 
 # Generate join commands
-echo "Generating join commands..."
+echo "=== Generating join commands ==="
 
-# Upload certificates for control-plane nodes
+# Upload certificates and get the key (FIXED: use tail -1)
 CERT_KEY=$(kubeadm init phase upload-certs --upload-certs 2>&1 | tail -1)
+echo "Certificate key: $${CERT_KEY}"
 
-# Worker join command
+# Validate certificate key (should be 64 hex characters)
+if [ -z "$${CERT_KEY}" ] || [ "$${CERT_KEY}" == "key:" ] || [ $${#CERT_KEY} -lt 32 ]; then
+  echo "ERROR: Invalid certificate key: '$${CERT_KEY}'"
+  exit 1
+fi
+
+# Generate worker join command
 WORKER_JOIN=$(kubeadm token create --print-join-command)
+echo "Original worker join: $${WORKER_JOIN}"
 
-# Control-plane join command
-MASTER_JOIN="$WORKER_JOIN --control-plane --certificate-key $CERT_KEY"
+# CRITICAL: Replace IP:PORT with NLB DNS:PORT
+# This ensures all nodes join through the load balancer
+WORKER_JOIN_NLB=$(echo "$${WORKER_JOIN}" | sed -E "s/[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+/$${CONTROL_PLANE_ENDPOINT}/")
+echo "Worker join (via NLB): $${WORKER_JOIN_NLB}"
+
+# Generate master join command (with NLB DNS)
+MASTER_JOIN_NLB="$${WORKER_JOIN_NLB} --control-plane --certificate-key $${CERT_KEY}"
+echo "Master join (via NLB): $${MASTER_JOIN_NLB}"
 
 # Save locally
-echo "$WORKER_JOIN" > /home/ubuntu/worker-join.sh
-echo "$MASTER_JOIN" > /home/ubuntu/master-join.sh
+echo "$${WORKER_JOIN_NLB}" > /home/ubuntu/worker-join.sh
+echo "$${MASTER_JOIN_NLB}" > /home/ubuntu/master-join.sh
 chmod +x /home/ubuntu/worker-join.sh /home/ubuntu/master-join.sh
-chown ubuntu:ubuntu /home/ubuntu/*-join.sh
+chown ubuntu:ubuntu /home/ubuntu/worker-join.sh /home/ubuntu/master-join.sh
 
-# Upload to S3 (simple and reliable)
+# Upload to S3 with proper content
 echo "Uploading join commands to S3..."
-echo "$WORKER_JOIN" | aws s3 cp - s3://$S3_BUCKET/worker-join.sh --region $AWS_REGION
-echo "$MASTER_JOIN" | aws s3 cp - s3://$S3_BUCKET/master-join.sh --region $AWS_REGION
-echo "ready" | aws s3 cp - s3://$S3_BUCKET/master-ready --region $AWS_REGION
+echo "$${WORKER_JOIN_NLB}" | aws s3 cp - s3://$${S3_BUCKET}/worker-join.sh --region $${AWS_REGION}
+echo "$${MASTER_JOIN_NLB}" | aws s3 cp - s3://$${S3_BUCKET}/master-join.sh --region $${AWS_REGION}
+echo "ready" | aws s3 cp - s3://$${S3_BUCKET}/master-ready --region $${AWS_REGION}
 
-# Verify upload
-aws s3 ls s3://$S3_BUCKET/ --region $AWS_REGION
+# Verify S3 uploads
+echo "=== Verifying S3 uploads ==="
+aws s3 ls s3://$${S3_BUCKET}/ --region $${AWS_REGION}
 
-# Final status
-kubectl get nodes
+echo "=== Verifying join command content in S3 ==="
+echo "Worker join command:"
+aws s3 cp s3://$${S3_BUCKET}/worker-join.sh - --region $${AWS_REGION}
+echo ""
+echo "Master join command:"
+aws s3 cp s3://$${S3_BUCKET}/master-join.sh - --region $${AWS_REGION}
+
+# Display cluster status
+echo "=== Cluster Status ==="
+kubectl get nodes -o wide
 kubectl get pods -A
 
-cat <<EOF > /home/ubuntu/SETUP_COMPLETE.txt
+# Completion file
+cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
-Kubernetes Master Setup Complete
+Kubernetes Master Node Setup Complete
 ===========================================
-Hostname: $HOSTNAME
-IP: $IPADDR
+Hostname: $${HOSTNAME}
+IP: $${IPADDR}
+Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}
 Kubernetes: v1.30.0
 CNI: Flannel
 
-Join Commands:
+Join Commands Uploaded to S3:
+  Worker: s3://$${S3_BUCKET}/worker-join.sh
+  Master: s3://$${S3_BUCKET}/master-join.sh
+
+Local Join Commands:
   Worker: ~/worker-join.sh
   Master: ~/master-join.sh
 
-S3 Bucket: $S3_BUCKET
-
-Verify:
-  kubectl get nodes
-  kubectl get pods -A
-
 Completed: $(date)
 ===========================================
-EOF
+EOFCOMPLETE
 
 chown ubuntu:ubuntu /home/ubuntu/SETUP_COMPLETE.txt
 
-echo "=== [$(date)] Master Setup Complete ==="
+echo "=== [$(date)] Master setup completed successfully ==="

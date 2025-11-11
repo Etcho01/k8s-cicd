@@ -3,18 +3,21 @@
 
 locals {
   master_init_user_data = templatefile("${path.module}/../../scripts/master_setup.sh", {
-    s3_bucket  = var.s3_bucket_name
-    aws_region = var.aws_region
+    s3_bucket              = var.s3_bucket_name
+    aws_region             = var.aws_region
+    control_plane_endpoint = var.control_plane_endpoint
   })
 
   master_join_user_data = templatefile("${path.module}/../../scripts/master_join.sh", {
-    s3_bucket  = var.s3_bucket_name
-    aws_region = var.aws_region
+    s3_bucket              = var.s3_bucket_name
+    aws_region             = var.aws_region
+    control_plane_endpoint = var.control_plane_endpoint
   })
 
   worker_user_data = templatefile("${path.module}/../../scripts/worker_setup.sh", {
-    s3_bucket  = var.s3_bucket_name
-    aws_region = var.aws_region
+    s3_bucket              = var.s3_bucket_name
+    aws_region             = var.aws_region
+    control_plane_endpoint = var.control_plane_endpoint
   })
 
   repo_user_data = file("${path.module}/../../scripts/repo_setup.sh")
@@ -210,4 +213,13 @@ resource "aws_instance" "repo" {
       Node = "repo"
     }
   )
+}
+
+# Attach master nodes to load balancer target group
+resource "aws_lb_target_group_attachment" "k8s_masters" {
+  count = var.master_count
+
+  target_group_arn = var.target_group_arn
+  target_id        = aws_instance.master[count.index].id
+  port             = 6443
 }

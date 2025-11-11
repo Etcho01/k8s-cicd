@@ -90,3 +90,13 @@ variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
 }
+
+variable "control_plane_endpoint" {
+  description = "Load balancer DNS for control plane endpoint"
+  type        = string
+}
+
+variable "target_group_arn" {
+  description = "Target group ARN for load balancer"
+  type        = string
+}

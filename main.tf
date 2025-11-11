@@ -98,7 +98,19 @@ resource "aws_s3_bucket_public_access_block" "k8s_config" {
   restrict_public_buckets = true
 }
 
+# Module: Load Balancer for Kubernetes API HA (created BEFORE EC2 instances)
+module "loadbalancer" {
+  source = "./modules/loadbalancer"
+
+  project_name      = var.project_name
+  environment       = var.environment
+  vpc_id            = module.network.vpc_id
+  public_subnet_ids = module.network.public_subnet_ids
+  common_tags       = local.common_tags
+}
+
 # Module: EC2 instances (masters, workers, repo host)
+# Masters will use LB DNS as control-plane-endpoint
 module "ec2" {
   source = "./modules/ec2"
 
@@ -120,8 +132,11 @@ module "ec2" {
   root_volume_size           = var.root_volume_size
   root_volume_type           = var.root_volume_type
   common_tags                = local.common_tags
+  control_plane_endpoint     = module.loadbalancer.control_plane_endpoint
+  target_group_arn           = module.loadbalancer.target_group_arn
 
   depends_on = [
-    aws_s3_bucket.k8s_config
+    aws_s3_bucket.k8s_config,
+    module.loadbalancer
   ]
 }

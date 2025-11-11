@@ -1,15 +1,20 @@
 #!/bin/bash
 # Kubernetes Additional Master Node - Ubuntu 22.04 LTS
-# Joins existing cluster as control-plane
+# Joins existing cluster as control-plane via NLB
 
 set -euxo pipefail
 exec > >(tee /var/log/user-data.log) 2>&1
 
 echo "=== [$(date)] Additional Master Setup Started ==="
 
-# Variables
+# Variables from Terraform
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
+CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+
+echo "S3 Bucket: $${S3_BUCKET}"
+echo "AWS Region: $${AWS_REGION}"
+echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
 
 # Update system
 apt-get update
@@ -49,6 +54,7 @@ systemctl restart containerd
 systemctl enable containerd
 
 # Add Kubernetes repo
+mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
 
@@ -60,18 +66,29 @@ systemctl enable --now kubelet
 
 # Wait for first master to be ready
 echo "Waiting for first master..."
-until aws s3 cp s3://$S3_BUCKET/master-ready - --region $AWS_REGION 2>/dev/null | grep -q "ready"; do
-  echo "Master not ready yet..."
+RETRY=0
+until aws s3 cp s3://$${S3_BUCKET}/master-ready - --region $${AWS_REGION} 2>/dev/null | grep -q "ready"; do
+  if [ $${RETRY} -ge 120 ]; then
+    echo "ERROR: First master not ready after 20 minutes"
+    exit 1
+  fi
+  echo "Master not ready yet... ($${RETRY}/120)"
   sleep 10
+  RETRY=$((RETRY + 1))
 done
 echo "✓ First master is ready"
 
-# Download join command
-echo "Downloading join command..."
-aws s3 cp s3://$S3_BUCKET/master-join.sh - --region $AWS_REGION > /tmp/join.sh
+# Download join command from S3 (already has NLB DNS from master1)
+echo "Downloading join command from S3..."
+aws s3 cp s3://$${S3_BUCKET}/master-join.sh - --region $${AWS_REGION} > /tmp/join.sh
 chmod +x /tmp/join.sh
 
-# Join cluster
+# Display join command for verification
+echo "=== Join command content ==="
+cat /tmp/join.sh
+echo "==========================="
+
+# Execute join command directly (no modification needed - already has NLB DNS)
 echo "Joining cluster as control-plane..."
 bash /tmp/join.sh
 
@@ -80,14 +97,15 @@ mkdir -p /home/ubuntu/.kube
 cp /etc/kubernetes/admin.conf /home/ubuntu/.kube/config
 chown -R ubuntu:ubuntu /home/ubuntu/.kube
 
-cat <<EOF > /home/ubuntu/SETUP_COMPLETE.txt
+cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
 Additional Master Joined
 ===========================================
 Joined: $(date)
 Role: Control Plane
+Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}
 ===========================================
-EOF
+EOFCOMPLETE
 
 chown ubuntu:ubuntu /home/ubuntu/SETUP_COMPLETE.txt
 

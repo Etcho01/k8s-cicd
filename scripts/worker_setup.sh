@@ -1,15 +1,20 @@
 #!/bin/bash
 # Kubernetes Worker Node - Ubuntu 22.04 LTS
-# Joins cluster as worker
+# Joins cluster as worker via NLB
 
 set -euxo pipefail
 exec > >(tee /var/log/user-data.log) 2>&1
 
 echo "=== [$(date)] Worker Setup Started ==="
 
-# Variables
+# Variables from Terraform
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
+CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+
+echo "S3 Bucket: $${S3_BUCKET}"
+echo "AWS Region: $${AWS_REGION}"
+echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
 
 # Update system
 apt-get update
@@ -49,6 +54,7 @@ systemctl restart containerd
 systemctl enable containerd
 
 # Add Kubernetes repo
+mkdir -p /etc/apt/keyrings
 curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.30/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
 echo 'deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.30/deb/ /' | tee /etc/apt/sources.list.d/kubernetes.list
 
@@ -61,33 +67,40 @@ systemctl enable --now kubelet
 # Wait for master to be ready
 echo "Waiting for master..."
 RETRY=0
-until aws s3 cp s3://$S3_BUCKET/master-ready - --region $AWS_REGION 2>/dev/null | grep -q "ready"; do
-  if [ $RETRY -ge 120 ]; then
+until aws s3 cp s3://$${S3_BUCKET}/master-ready - --region $${AWS_REGION} 2>/dev/null | grep -q "ready"; do
+  if [ $${RETRY} -ge 120 ]; then
     echo "ERROR: Master not ready after 20 minutes"
     exit 1
   fi
-  echo "Master not ready yet... ($RETRY/120)"
+  echo "Master not ready yet... ($${RETRY}/120)"
   sleep 10
   RETRY=$((RETRY + 1))
 done
 echo "✓ Master is ready"
 
-# Download and execute join command
-echo "Downloading join command..."
-aws s3 cp s3://$S3_BUCKET/worker-join.sh - --region $AWS_REGION > /tmp/join.sh
+# Download join command from S3 (already has NLB DNS from master1)
+echo "Downloading join command from S3..."
+aws s3 cp s3://$${S3_BUCKET}/worker-join.sh - --region $${AWS_REGION} > /tmp/join.sh
 chmod +x /tmp/join.sh
 
+# Display join command for verification
+echo "=== Join command content ==="
+cat /tmp/join.sh
+echo "==========================="
+
+# Execute join command directly (no modification needed - already has NLB DNS)
 echo "Joining cluster..."
 bash /tmp/join.sh
 
-cat <<EOF > /home/ubuntu/SETUP_COMPLETE.txt
+cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
 Worker Node Joined
 ===========================================
 Joined: $(date)
 Role: Worker
+Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}
 ===========================================
-EOF
+EOFCOMPLETE
 
 chown ubuntu:ubuntu /home/ubuntu/SETUP_COMPLETE.txt
 

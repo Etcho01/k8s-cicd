@@ -104,10 +104,11 @@ output "ami_name" {
 output "kubernetes_cluster_info" {
   description = "Information for connecting to the Kubernetes cluster"
   value = {
-    api_endpoint    = "https://${module.ec2.master_public_ips[0]}:6443"
-    master_nodes    = module.ec2.master_private_ips
-    worker_nodes    = module.ec2.worker_private_ips
-    kubeconfig_note = "SSH to master1 and copy /etc/kubernetes/admin.conf"
+    control_plane_endpoint = module.loadbalancer.control_plane_endpoint
+    nlb_dns_name           = module.loadbalancer.nlb_dns_name
+    master_nodes           = module.ec2.master_private_ips
+    worker_nodes           = module.ec2.worker_private_ips
+    kubeconfig_note        = "SSH to any master and copy ~/.kube/config"
   }
 }
 
