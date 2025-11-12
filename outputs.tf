@@ -52,10 +52,10 @@ output "cluster_info" {
   value = {
     control_plane_endpoint = module.loadbalancer.control_plane_endpoint
     kubernetes_version     = "v1.30.0"
-    cni_plugin            = "Flannel"
-    pod_network_cidr      = "10.244.0.0/16"
-    master_count          = var.master_count
-    worker_count          = var.worker_count
+    cni_plugin             = "Flannel"
+    pod_network_cidr       = "10.244.0.0/16"
+    master_count           = var.master_count
+    worker_count           = var.worker_count
   }
 }
 
@@ -83,10 +83,10 @@ output "ssh_commands" {
 output "repository_host" {
   description = "Private repository host connection details"
   value = {
-    name          = "repo"
-    public_ip     = module.ec2.repo_public_ip
-    private_ip    = module.ec2.repo_private_ip
-    ssh           = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.repo_public_ip}"
+    name            = "repo"
+    public_ip       = module.ec2.repo_public_ip
+    private_ip      = module.ec2.repo_private_ip
+    ssh             = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.repo_public_ip}"
     docker_registry = "http://${module.ec2.repo_private_ip}:5000"
   }
 }

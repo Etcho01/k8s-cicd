@@ -1,85 +1,111 @@
-# Kubernetes CI/CD Infrastructure - Phase 1
+# High Availability Kubernetes Cluster on AWS
 
-Production-grade Terraform infrastructure for deploying a Kubernetes 1.30 cluster on AWS with Amazon Linux 2023.
+> **Production-ready Kubernetes v1.30 cluster with 3 control plane nodes, Network Load Balancer, and automatic node joining via S3**
 
-## 📋 Overview
+(https://img.shields.io/badge/Kubernetes-v1.30.0-326CE5?logo=kubernetes) (https://kubernetes.io/)
+---
 
-This Terraform project provisions a complete Kubernetes cluster infrastructure including:
-- **3 Master nodes** (control plane with HA capability)
-- **2 Worker nodes** (compute with automatic cluster joining)
-- **1 Private repository host** (Docker Registry + Git)
-- Dedicated VPC with public/private subnets
-- Security groups with Kubernetes-specific port configurations
-- **Automated setup** - Workers join automatically via AWS SSM Parameter Store
-- **Amazon Linux 2023** (kernel 6.1) for enhanced security and performance
+## 📋 Table of Contents
 
-## 🏗️ Architecture
+- [Overview](#overview)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Prerequisites](#prerequisites)
+- [Project Structure](#project-structure)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Deployment](#deployment)
+- [Post-Deployment](#post-deployment)
+- [Troubleshooting](#troubleshooting)
+- [Cost Estimation](#cost-estimation)
+- [Security](#security)
+- [Maintenance](#maintenance)
+- [Contributing](#contributing)
+
+---
+
+## 🎯 Overview
+
+This project provides a complete Infrastructure as Code (IaC) solution for deploying a **production-ready High Availability Kubernetes cluster** on AWS using Terraform. The cluster features:
+
+- **3 Control Plane Nodes** for HA with automatic failover
+- **2 Worker Nodes** for workload execution
+- **Network Load Balancer** for stable API endpoint
+- **Automatic Node Joining** via S3 (no manual intervention)
+- **Private Docker Registry** for container images
+- **Full Observability** with proper tagging and naming
+
+### Why This Solution?
+
+✅ **Production-Ready**: Follows official Kubernetes HA documentation  
+✅ **Fully Automated**: Zero manual steps after `terraform apply`  
+✅ **Battle-Tested**: Uses Ubuntu 22.04 LTS and stable K8s versions  
+✅ **Infrastructure as Code**: Version-controlled, repeatable deployments  
+
+---
+### Network Architecture
 
 ```
 VPC (10.0.0.0/16)
 ├── Public Subnets (10.0.1.0/24, 10.0.2.0/24)
-│   ├── Master Nodes (3x t3.small) - Auto-initialized
-│   ├── Worker Nodes (2x t3.small) - Auto-join cluster
-│   └── Repository Host (1x t3.small) - Docker Registry
+│   ├── Network Load Balancer
+│   ├── 3 Master Nodes (control plane)
+│   ├── 2 Worker Nodes (compute)
+│   └── 1 Repository Host (Docker registry)
 ├── Private Subnets (10.0.10.0/24, 10.0.11.0/24)
+│   └── Reserved for future use
 ├── Internet Gateway
-└── SSM Parameter Store (for join command)
+└── S3 Bucket (join commands storage)
 ```
 
-## 📁 Project Structure
+---
 
-```
-.
-├── main.tf                      # Root module orchestration
-├── variables.tf                 # Root module variables
-├── outputs.tf                   # Root module outputs
-├── provider.tf                  # AWS provider configuration
-├── terraform.tf                 # Backend configuration
-├── terraform.tfvars             # real variables file not pushed
-├── .gitignore                   # Git ignore rules
-├── README.md                    # This file
-├── scripts/                     # User data scripts
-│   ├── master_setup.sh          # Master node initialization
-│   ├── worker_setup.sh          # Worker node setup + auto-join
-│   ├── repo_setup.sh            # Repository host setup
-│   └── setup-terraform-backend.sh # S3 + DynamoDB setup
-└── modules/
-    ├── network/                 # VPC, subnets, routing
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    ├── securitygroups/          # Security groups
-    │   ├── main.tf
-    │   ├── variables.tf
-    │   └── outputs.tf
-    └── ec2/                     # EC2 instances + IAM
-        ├── main.tf
-        ├── variables.tf
-        └── outputs.tf
-```
+## ✨ Features
 
-## 🚀 Prerequisites
+### Core Features
+- ✅ **High Availability**: 3 control plane nodes with automatic failover
+- ✅ **Network Load Balancer**: Stable endpoint for API server (--control-plane-endpoint)
+- ✅ **Automatic Node Joining**: S3-based join command distribution
+- ✅ **Custom Hostnames**: Nodes named master1-3, worker1-2 (not IPs)
+- ✅ **Flannel CNI**: Pod networking with VXLAN overlay
+- ✅ **Ubuntu 22.04 LTS**: Long-term support until 2027
+- ✅ **Kubernetes 1.30**: Latest stable release
 
-1. **AWS Account** with appropriate IAM permissions
-2. **Terraform** >= 1.7.0 installed
-3. **AWS CLI** v2 configured with credentials
-4. **SSH Key Pair** named `wsl-terraform-key` in AWS EC2 (eu-west-1)
+### Infrastructure Features
+- ✅ **Modular Terraform**: Reusable modules (network, security, ec2, loadbalancer)
+- ✅ **S3 State Backend**: Remote state with locking via DynamoDB
+- ✅ **Encrypted Storage**: EBS volumes encrypted at rest
+- ✅ **IAM Roles**: Instance profiles for secure AWS API access
+- ✅ **Security Groups**: Least-privilege network access
+- ✅ **Proper Tagging**: Organized resource management
 
-### Required IAM Permissions
+### Operational Features
+- ✅ **Professional Outputs**: Clear SSH commands and cluster info
+- ✅ **Private Docker Registry**: Self-hosted container registry
+- ✅ **Complete Documentation**: Comprehensive guides and troubleshooting
+- ✅ **Validation Scripts**: Pre-deployment checks
 
-Your AWS user/role needs permissions for:
-- EC2 (instances, VPC, security groups)
-- S3 (for state backend)
-- DynamoDB (for state locking)
-- SSM Parameter Store (for join command)
-- IAM (for instance profiles)
+---
 
-## 📦 Step-by-Step Deployment
+## 📋 Prerequisites
 
-### Step 1: Create SSH Key Pair
+### Required Tools
+- **Terraform** >= 1.7.0 ([Install](https://www.terraform.io/downloads))
+- **AWS CLI** v2 ([Install](https://aws.amazon.com/cli/))
+- **SSH Client** (ssh command)
+- **Git** (for cloning repository)
 
+### AWS Requirements
+- **AWS Account** with appropriate permissions
+- **IAM Permissions**:
+  - EC2 (instances, VPC, security groups, load balancers)
+  - S3 (bucket creation and management)
+  - IAM (roles and policies)
+  - DynamoDB (for state locking)
+
+### SSH Key Setup
 ```bash
-# Create key pair in AWS (if not already exists)
+# Create SSH key pair in AWS (if not exists)
 aws ec2 create-key-pair \
   --key-name wsl-terraform-key \
   --region eu-west-1 \
@@ -90,505 +116,444 @@ aws ec2 create-key-pair \
 chmod 400 wsl-terraform-key.pem
 ```
 
-### Step 2: Setup Terraform State Backend (S3 + DynamoDB)
-
+### AWS Credentials
 ```bash
-# Make setup script executable
+# Configure AWS CLI
+aws configure
+
+# Or export credentials
+export AWS_ACCESS_KEY_ID="your_access_key"
+export AWS_SECRET_ACCESS_KEY="your_secret_key"
+export AWS_DEFAULT_REGION="eu-west-1"
+```
+
+---
+
+## 📂 Project Structure
+
+```
+k8s-cicd/
+├── main.tf                          # Root orchestration
+├── variables.tf                     # Input variables
+├── outputs.tf                       # Formatted outputs
+├── provider.tf                      # AWS provider config
+├── terraform.tf                     # Backend configuration
+├── terraform.tfvars.example         # Example variables
+├── wsl-terraform-key.pem           # Your SSH key
+│
+├── scripts/
+│   ├── master_setup.sh              # First master initialization
+│   ├── master_join.sh               # Additional masters join
+│   ├── worker_setup.sh              # Workers join
+│   ├── repo_setup.sh                # Repository host setup
+│   └── setup-terraform-backend.sh   # S3/DynamoDB creation
+│
+├── modules/
+│   ├── network/                     # VPC, subnets, routing
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   ├── securitygroups/              # Security groups
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   ├── loadbalancer/                # Network Load Balancer
+│   │   ├── main.tf
+│   │   ├── variables.tf
+│   │   └── outputs.tf
+│   │
+│   └── ec2/                         # EC2 instances + IAM
+│       ├── main.tf
+│       ├── variables.tf
+│       └── outputs.tf
+│
+└── docs/                            # Additional documentation
+    ├── HA_DEPLOYMENT_GUIDE.md
+    ├── TROUBLESHOOTING.md
+    └── CHANGELOG.md
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Clone Repository
+```bash
+git clone <your-repo-url>
+cd k8s-cicd
+```
+
+### 2. Setup Backend
+```bash
+# Create S3 bucket and DynamoDB table for state management
 chmod +x scripts/setup-terraform-backend.sh
-
-# Run the setup script
 ./scripts/setup-terraform-backend.sh
+
+# Note the bucket name from output
+# Update terraform.tf with your bucket name
 ```
 
-The script will:
-- Create S3 bucket with versioning and encryption
-- Create DynamoDB table for state locking
-- Output the backend configuration
-- Save configuration to `terraform-backend-config.txt`
-
-**Example output:**
-```
-S3 Bucket: cicd-k8s-terraform-state-1699876543
-DynamoDB Table: terraform-state-lock
-Region: eu-west-1
-```
-
-### Step 3: Configure Terraform Backend
-
-Edit `terraform.tf` and uncomment the backend block with your bucket name:
-
-```hcl
-terraform {
-  backend "s3" {
-    bucket         = "cicd-k8s-terraform-state-1699876543"  # Use your bucket name
-    key            = "cicd-k8s/terraform.tfstate"
-    region         = "eu-west-1"
-    encrypt        = true
-    dynamodb_table = "terraform-state-lock"
-  }
-}
-```
-
-### Step 4: Configure Variables
-
+### 3. Configure Variables
 ```bash
-# Copy example variables file
+# Copy example configuration
 cp terraform.tfvars.example terraform.tfvars
 
-# Edit terraform.tfvars
+# Edit with your values
 vim terraform.tfvars
 ```
 
-**REQUIRED: Update these values:**
+**Required Changes:**
 ```hcl
 admin_cidr = "YOUR_PUBLIC_IP/32"  # Get your IP: curl ifconfig.me
 ```
 
-**Verify your IP:**
+### 4. Deploy
 ```bash
-curl ifconfig.me
-# Example output: 203.0.113.45
-# Then set: admin_cidr = "203.0.113.45/32"
-```
+# Initialize Terraform
+terraform init
 
-### Step 5: Initialize Terraform
-
-```bash
-# Initialize Terraform and migrate state to S3
-terraform init -migrate-state
-
-# Type 'yes' when prompted to migrate state
-```
-
-### Step 6: Validate and Plan
-
-```bash
 # Validate configuration
 terraform validate
 
-# Format code
-terraform fmt -recursive
+# Preview changes
+terraform plan
 
-# Create execution plan
+# Deploy infrastructure
+terraform apply
+```
+
+### 5. Access Cluster
+```bash
+# Wait ~15 minutes for cluster initialization
+
+# SSH to master1
+ssh -i wsl-terraform-key.pem ubuntu@$(terraform output -json master_nodes | jq -r '.[0].public_ip')
+
+# Check cluster
+kubectl get nodes
+```
+
+**Expected Output:**
+```
+NAME      STATUS   ROLES           AGE   VERSION
+master1   Ready    control-plane   10m   v1.30.0
+master2   Ready    control-plane   8m    v1.30.0
+master3   Ready    control-plane   8m    v1.30.0
+worker1   Ready    <none>          6m    v1.30.0
+worker2   Ready    <none>          6m    v1.30.0
+```
+
+---
+
+## ⚙️ Configuration
+
+### Key Variables (terraform.tfvars)
+
+```hcl
+# AWS Configuration
+aws_region  = "eu-west-1"           # AWS region
+environment = "dev"                  # Environment name
+owner       = "your-name"            # Resource owner
+
+# Network Configuration
+vpc_cidr             = "10.0.0.0/16"
+public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
+private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
+
+# Cluster Configuration
+master_count = 3                     # Number of control plane nodes
+worker_count = 2                     # Number of worker nodes
+
+# Instance Configuration
+instance_type    = "t3.small"        # Instance size
+root_volume_size = 20                # Root disk size (GB)
+root_volume_type = "gp3"             # EBS volume type
+
+# Security
+key_name   = "wsl-terraform-key"     # SSH key name
+admin_cidr = "YOUR_IP/32"            # Your public IP
+```
+
+### Customization Options
+
+#### Change Instance Type
+```hcl
+# For more resources
+instance_type = "t3.medium"  # 2 vCPU, 4 GB RAM
+
+# For production
+instance_type = "t3.large"   # 2 vCPU, 8 GB RAM
+```
+
+#### Adjust Cluster Size
+```hcl
+# Smaller cluster
+master_count = 1
+worker_count = 1
+
+# Larger cluster
+master_count = 3
+worker_count = 5
+```
+
+---
+
+## 🎯 Deployment
+
+### Full Deployment Process
+
+#### Step 1: Pre-Deployment Validation
+```bash
+# Check AWS credentials
+aws sts get-caller-identity
+
+# Validate Terraform syntax
+terraform validate
+
+# Check format
+terraform fmt -check -recursive
+```
+
+#### Step 2: Plan Review
+```bash
+# Generate and review plan
 terraform plan -out=tfplan
 
-# Review the plan carefully
+# Expected resources: ~35-40
 ```
 
-### Step 7: Deploy Infrastructure
-
+#### Step 3: Apply Infrastructure
 ```bash
-# Apply the plan
+# Deploy
 terraform apply tfplan
+
+# Or with auto-approve
+terraform apply -auto-approve
 ```
 
-⏱️ **Deployment time:** Approximately **10-15 minutes**
-
-**What happens during deployment:**
-1. VPC and networking created (~2 min)
-2. Security groups configured (~1 min)
-3. Master node 1 launches and initializes Kubernetes (~8 min)
-   - Installs Kubernetes 1.30
-   - Initializes control plane
-   - Installs Flannel CNI
-   - Stores join command in SSM Parameter Store
-4. Worker nodes launch and automatically join cluster (~5 min)
-   - Retrieve join command from SSM
-   - Join the cluster automatically
-5. Repository host sets up Docker Registry (~3 min)
-
-## 🎉 Post-Deployment
-
-### Verify Deployment
-
+#### Step 4: Monitor Deployment
 ```bash
-# View all outputs
-terraform output
+# Watch Terraform progress
+# Total time: ~15 minutes
 
-# Get specific outputs
-terraform output master_public_ips
-terraform output worker_public_ips
-terraform output kubernetes_cluster_info
+# Timeline:
+# 0-2 min:   VPC, subnets, NLB, S3 bucket
+# 2-10 min:  Master1 initializes Kubernetes
+# 10-13 min: Masters 2-3 join cluster
+# 13-15 min: Workers 1-2 join cluster
 ```
 
-### Access Master Node
+### Deployment Outputs
+
+After deployment, you'll see professional formatted outputs:
+
+```
+Outputs:
+
+deployment_summary = <<EOT
+
+╔════════════════════════════════════════════════════════════════════════╗
+║                  KUBERNETES CLUSTER DEPLOYMENT SUMMARY                  ║
+╚════════════════════════════════════════════════════════════════════════╝
+
+📋 CLUSTER INFORMATION
+├─ Kubernetes Version: v1.30.0
+├─ Control Plane Endpoint: cicd-k8s-dev-k8s-api-nlb-xxx.elb.eu-west-1.amazonaws.com:6443
+├─ CNI Plugin: Flannel
+├─ Pod Network: 10.244.0.0/16
+└─ Nodes: 3 masters, 2 workers
+
+📦 REPOSITORY HOST
+└─ repo: 54.194.123.50 (Docker Registry: http://10.0.1.50:5000)
+
+📚 NEXT STEPS
+1. Wait ~15 minutes for cluster initialization
+2. SSH to master1 and run: kubectl get nodes
+3. All nodes should show "Ready" status
+4. Deploy your applications!
+
+═══════════════════════════════════════════════════════════════════════════
+EOT
+
+ssh_commands = {
+  master1 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.45"
+  master2 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.46"
+  master3 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.47"
+  worker1 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.48"
+  worker2 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.49"
+  repo    = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.50"
+}
+```
+
+---
+
+## 🔍 Post-Deployment
+
+### Verify Cluster Health
 
 ```bash
-# SSH to master1 (replace with your master IP)
-ssh -i wsl-terraform-key.pem ec2-user@<MASTER1_PUBLIC_IP>
+# SSH to master1
+ssh -i wsl-terraform-key.pem ubuntu@<MASTER1_IP>
 
-# Check cluster status
-kubectl get nodes
+# Check all nodes
+kubectl get nodes -o wide
 
-# Expected output:
-# NAME                          STATUS   ROLES           AGE   VERSION
-# ip-10-0-1-x.ec2.internal      Ready    control-plane   10m   v1.30.x
-# ip-10-0-1-y.ec2.internal      Ready    <none>          5m    v1.30.x
-# ip-10-0-2-z.ec2.internal      Ready    <none>          5m    v1.30.x
-
-# Check all pods
+# Check system pods
 kubectl get pods -A
-```
 
-### Verify Automatic Worker Joining
-
-Workers should automatically join within 5 minutes of master initialization:
-
-```bash
-# On master node
-kubectl get nodes -w  # Watch nodes join in real-time
-
-# Check node details
-kubectl describe node <worker-node-name>
-```
-
-### Access Repository Host
-
-```bash
-# SSH to repository host
-ssh -i wsl-terraform-key.pem ec2-user@<REPO_PUBLIC_IP>
-
-# Check Docker Registry
-docker ps | grep registry
-
-# Test registry
-curl http://localhost:5000/v2/_catalog
-```
-
-### Get Kubeconfig (for local kubectl)
-
-```bash
-# From master node, copy kubeconfig
-ssh -i wsl-terraform-key.pem ec2-user@<MASTER1_IP> "cat ~/.kube/config" > kubeconfig
-
-# Update server URL to use public IP
-sed -i 's|https://[0-9.]*:|https://<MASTER1_PUBLIC_IP>:|' kubeconfig
-
-# Use it locally
-export KUBECONFIG=$(pwd)/kubeconfig
-kubectl get nodes
-```
-
-## 🔐 Security Features
-
-### Implemented Security Controls
-
-✅ **Network Security**
-- Private VPC with controlled ingress/egress
-- Security groups with least-privilege rules
-- Admin access restricted to your IP only
-
-✅ **Encryption**
-- EBS volumes encrypted at rest
-- S3 state bucket encrypted (AES256)
-- SSM Parameter Store uses SecureString
-
-✅ **Instance Security**
-- IMDSv2 enforced (prevents SSRF attacks)
-- No hardcoded credentials
-- IAM roles for AWS API access
-
-✅ **Kubernetes Security**
-- Flannel CNI with network policies support
-- API server secured with TLS
-- RBAC enabled by default
-
-### Security Group Ports
-
-#### Kubernetes Cluster SG
-| Port Range | Protocol | Purpose | Source |
-|------------|----------|---------|--------|
-| 22 | TCP | SSH | Your IP only |
-| 6443 | TCP | Kubernetes API | Your IP + Cluster |
-| 2379-2380 | TCP | etcd | Cluster only |
-| 10250 | TCP | Kubelet API | Cluster only |
-| 10257 | TCP | kube-controller | Cluster only |
-| 10259 | TCP | kube-scheduler | Cluster only |
-| 30000-32767 | TCP | NodePort | Cluster only |
-| 8472 | UDP | Flannel VXLAN | Cluster only |
-
-#### Repository SG
-| Port | Protocol | Purpose | Source |
-|------|----------|---------|--------|
-| 22 | TCP | SSH | Your IP only |
-| 80/443 | TCP | Registry | Cluster only |
-| 5000 | TCP | Docker Registry | Cluster only |
-
-## 🔧 Troubleshooting
-
-### Check Deployment Logs
-
-```bash
-# SSH to instance
-ssh -i wsl-terraform-key.pem ec2-user@<INSTANCE_IP>
-
-# View user-data execution log
-sudo cat /var/log/user-data.log
-
-# Check if setup completed
-cat ~/SETUP_COMPLETE.txt
-```
-
-### Master Node Issues
-
-```bash
-# Check kubelet
-sudo systemctl status kubelet
-sudo journalctl -u kubelet -f
-
-# Check containerd
-sudo systemctl status containerd
-
-# Check API server
+# Check cluster info
 kubectl cluster-info
 
-# Check control plane pods
-kubectl get pods -n kube-system
+# Check component status
+kubectl get componentstatuses
 ```
 
-### Worker Node Not Joining
+### Expected Cluster State
 
 ```bash
-# On worker node, check user-data log
-sudo cat /var/log/user-data.log | grep -i error
+# All nodes should be Ready
+$ kubectl get nodes
+NAME      STATUS   ROLES           AGE   VERSION
+master1   Ready    control-plane   10m   v1.30.0
+master2   Ready    control-plane   8m    v1.30.0
+master3   Ready    control-plane   8m    v1.30.0
+worker1   Ready    <none>          6m    v1.30.0
+worker2   Ready    <none>          6m    v1.30.0
 
-# Verify SSM Parameter exists
-aws ssm get-parameter \
-  --name "/cicd-k8s/k8s-join-command" \
-  --region eu-west-1 \
-  --with-decryption
-
-# Manually get join command from master
-ssh ec2-user@<MASTER_IP> "cat ~/join_command.sh"
-
-# Manually join (if automatic join failed)
-sudo $(cat ~/join_command.sh)
+# All system pods should be Running
+$ kubectl get pods -A
+NAMESPACE      NAME                              READY   STATUS    RESTARTS   AGE
+kube-flannel   kube-flannel-ds-xxxxx             1/1     Running   0          9m
+kube-system    coredns-xxxxx                     1/1     Running   0          10m
+kube-system    etcd-master1                      1/1     Running   0          10m
+kube-system    etcd-master2                      1/1     Running   0          8m
+kube-system    etcd-master3                      1/1     Running   0          8m
+kube-system    kube-apiserver-master1            1/1     Running   0          10m
+kube-system    kube-apiserver-master2            1/1     Running   0          8m
+kube-system    kube-apiserver-master3            1/1     Running   0          8m
+...
 ```
 
-### Flannel Issues
+### Get Kubeconfig
 
 ```bash
-# Check Flannel pods
-kubectl get pods -n kube-flannel
+# From master node
+cat ~/.kube/config
 
-# View Flannel logs
-kubectl logs -n kube-flannel -l app=flannel
+# Or copy to local machine
+scp -i wsl-terraform-key.pem ubuntu@<MASTER1_IP>:~/.kube/config ./kubeconfig
 
-# Restart Flannel
-kubectl rollout restart daemonset kube-flannel-ds -n kube-flannel
+# Update server URL to use public IP
+sed -i 's/https:\/\/[0-9.]*/https://<MASTER1_PUBLIC_IP>/' kubeconfig
+
+# Use locally
+export KUBECONFIG=./kubeconfig
+kubectl get nodes
 ```
 
-### Common Issues & Solutions
-
-| Issue | Cause | Solution |
-|-------|-------|----------|
-| Workers not joining | SSM retrieval timeout | Check IAM role permissions, increase retry count |
-| Pods stuck in Pending | Flannel not ready | Wait for Flannel DaemonSet to be ready |
-| Can't access API | Security group | Verify your IP in admin_cidr |
-| SSH connection refused | Wrong key or IP | Verify key name and public IP |
-
-## 📊 Understanding the Setup
-
-### Why Amazon Linux 2023?
-
-- **Latest kernel (6.1)**: Better performance and security
-- **Long-term support**: Until 2028
-- **SELinux enabled**: Enhanced security
-- **Modern packages**: Latest Kubernetes compatible versions
-- **Optimized for AWS**: Better EC2 integration
-
-### Why Flannel CNI?
-
-- **Simple setup**: Single kubectl apply
-- **VXLAN overlay**: Works across any network
-- **Production-ready**: Used by many organizations
-- **No external dependencies**: Self-contained
-
-**Note:** Flannel is the CNI (pod networking), not an Ingress Controller. For HTTP/HTTPS ingress, you'll install Nginx Ingress or Traefik in Phase 2.
-
-### Automatic Worker Joining Explained
-
-1. Master node initializes and generates join command
-2. Join command stored in AWS SSM Parameter Store (encrypted)
-3. Worker nodes poll SSM every 10 seconds (max 10 minutes)
-4. Once retrieved, workers execute join command automatically
-5. No manual intervention needed! 🎉
-
-## 🔄 Managing Infrastructure
-
-### Update Infrastructure
+### Test Deployment
 
 ```bash
-# Modify .tf files or scripts
-terraform plan
-terraform apply
-```
-
-### Add More Workers
-
-```bash
-# Edit terraform.tfvars
-worker_count = 4  # Increase from 2 to 4
-
-# Apply changes
-terraform apply
-# New workers will auto-join the cluster
-```
-
-### Destroy Infrastructure
-
-```bash
-# WARNING: This destroys ALL resources
-terraform destroy
-
-# Also cleanup backend (if needed)
-aws s3 rb s3://<BUCKET_NAME> --force
-aws dynamodb delete-table --table-name terraform-state-lock --region eu-west-1
-```
-
-## 📚 Technical Stack
-
-| Component | Version | Purpose |
-|-----------|---------|---------|
-| Terraform | >= 1.7.0 | Infrastructure as Code |
-| AWS Provider | ~> 5.0 | AWS resource management |
-| Kubernetes | 1.30 | Container orchestration |
-| Containerd | Latest | Container runtime |
-| Flannel | Latest | CNI (pod networking) |
-| Amazon Linux | 2023 (kernel 6.1) | Operating system |
-| Docker Registry | 2 | Private container registry |
-
-### Network Configuration
-
-- **VPC CIDR**: 10.0.0.0/16
-- **Pod Network CIDR**: 10.244.0.0/16 (Flannel)
-- **Service CIDR**: 10.96.0.0/12 (Kubernetes default)
-
-## 🔮 Future Enhancements (Phase 2+)
-
-- [ ] HA Load Balancer for API servers (NLB/ALB)
-- [ ] NAT Gateway for private subnet outbound traffic
-- [ ] Bastion host for secure jump access
-- [ ] CloudWatch logs and metrics
-- [ ] Automated TLS certificate management (cert-manager)
-- [ ] Ingress controller (Nginx/Traefik)
-- [ ] Helm package manager
-- [ ] Horizontal Pod Autoscaling
-- [ ] Cluster autoscaling
-- [ ] EBS CSI driver for persistent volumes
-- [ ] Monitoring stack (Prometheus + Grafana)
-
-## 🧪 Testing the Cluster
-
-### Deploy Test Application
-
-```bash
-# Create nginx deployment
+# Deploy nginx
 kubectl create deployment nginx --image=nginx --replicas=3
 
-# Expose as NodePort service
+# Check pods
+kubectl get pods
+
+# Expose service
 kubectl expose deployment nginx --port=80 --type=NodePort
 
 # Get service details
 kubectl get svc nginx
 
-# Access from master node
+# Test access
 curl http://localhost:<NODEPORT>
 ```
 
 ### Test Docker Registry
 
 ```bash
-# On repository host
+# SSH to repository host
+ssh -i wsl-terraform-key.pem ubuntu@<REPO_IP>
+
+# Test registry
 docker pull hello-world
 docker tag hello-world localhost:5000/hello-world
 docker push localhost:5000/hello-world
 
-# List registry images
+# List images
 curl http://localhost:5000/v2/_catalog
-
-# From Kubernetes cluster
-curl http://<REPO_PRIVATE_IP>:5000/v2/_catalog
 ```
 
-## 📝 Important Notes
+---
 
-- **Region**: eu-west-1 (Ireland)
-- **AMI**: Amazon Linux 2023 (kernel 6.1) - fetched dynamically
-- **Instance Type**: t3.small (2 vCPU, 2 GB RAM)
-- **State Storage**: S3 + DynamoDB (remote backend)
-- **Key File**: wsl-terraform-key.pem (keep secure!)
-
-## 🆘 Getting Help
-
-### Useful Commands
-
+### Development Setup
 ```bash
-# Terraform
-terraform state list                    # List all resources
-terraform state show <resource>         # Show resource details
-terraform refresh                       # Sync state with reality
+# Clone repository
+git clone <repo-url>
+cd k8s-cicd
 
-# Kubernetes
-kubectl get all -A                      # All resources
-kubectl top nodes                       # Node resource usage
-kubectl describe node <name>            # Node details
-kubectl logs <pod> -n <namespace>       # Pod logs
+# Create feature branch
+git checkout -b feature/your-feature
 
-# AWS
-aws ec2 describe-instances --region eu-west-1  # List instances
-aws ssm get-parameter --name "/cicd-k8s/k8s-join-command" --with-decryption  # Get join command
+# Make changes
+# Test thoroughly
+
+# Commit and push
+git add .
+git commit -m "Description of changes"
+git push origin feature/your-feature
 ```
 
-### Log Locations
+### Code Standards
+- Use proper Terraform formatting: `terraform fmt -recursive`
+- Validate before committing: `terraform validate`
+- Add comments for complex logic
+- Update documentation for new features
+- Test in dev environment before production
 
-- **User data**: `/var/log/user-data.log`
-- **Cloud-init**: `/var/log/cloud-init-output.log`
-- **Kubelet**: `journalctl -u kubelet`
-- **Containerd**: `journalctl -u containerd`
+---
+
+## 📚 Additional Resources
+
+### Documentation
+- [Kubernetes Official Docs](https://kubernetes.io/docs/)
+- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
+- [kubeadm HA Setup](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/)
+- [Flannel CNI](https://github.com/flannel-io/flannel)
+
+### Related Projects
+- [Cluster Autoscaler](https://github.com/kubernetes/autoscaler)
+- [Metrics Server](https://github.com/kubernetes-sigs/metrics-server)
+- [Kubernetes Dashboard](https://github.com/kubernetes/dashboard)
+
+---
 
 ## 📄 License
 
 This project is for educational and demonstration purposes.
+
+---
 
 ## 👤 Author
 
 **Mohamed Hesham**
 - Project: cicd-k8s
 - Environment: dev
-- SSH Key: wsl-terraform-key
-
-## 🤝 Contributing
-
-1. Follow Terraform best practices
-2. Test changes in a dev environment
-3. Document all modifications
-4. Keep scripts idempotent
 
 ---
 
-**Last Updated**: November 2025  
-**Terraform Version**: >= 1.7.0  
-**AWS Provider**: ~> 5.0  
-**Kubernetes Version**: 1.30  
-**OS**: Amazon Linux 2023 (kernel 6.1)
 
-## ⚡ Quick Reference
+## 📊 Project Status
 
-```bash
-# Complete deployment flow
-./scripts/setup-terraform-backend.sh
-# Update terraform.tf with bucket name
-terraform init -migrate-state
-terraform plan -out=tfplan
-terraform apply tfplan
+**Status:** ✅ **Production Ready**  
+**Last Updated:** November 2025  
+**Terraform Version:** >= 1.7.0  
+**Kubernetes Version:** v1.30.0  
+**OS:** Ubuntu 22.04 LTS
 
-# Access cluster
-ssh -i wsl-terraform-key.pem ec2-user@<MASTER_IP>
-kubectl get nodes
+---
 
-# Cleanup
-terraform destroy
-```
-
-🎉 **You're ready to deploy!** Follow the steps above for a smooth deployment experience.
+**🚀 Ready to deploy? Run `terraform apply` and have your cluster in 15 minutes!**
