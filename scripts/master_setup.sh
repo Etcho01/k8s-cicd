@@ -11,10 +11,16 @@ echo "=== [$(date)] Kubernetes Master Setup Started ==="
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
 CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+NODE_HOSTNAME="${node_hostname}"
 
 echo "S3 Bucket: $${S3_BUCKET}"
 echo "AWS Region: $${AWS_REGION}"
 echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
+echo "Node Hostname: $${NODE_HOSTNAME}"
+
+# Set hostname
+hostnamectl set-hostname $${NODE_HOSTNAME}
+echo "127.0.0.1 $${NODE_HOSTNAME}" >> /etc/hosts
 
 # Update system
 apt-get update
@@ -67,10 +73,9 @@ systemctl enable --now kubelet
 
 # Get instance info
 IPADDR=$(hostname -I | awk '{print $1}')
-HOSTNAME=$(hostname -f)
 
 echo "Instance IP: $${IPADDR}"
-echo "Hostname: $${HOSTNAME}"
+echo "Hostname: $${NODE_HOSTNAME}"
 
 # Initialize Kubernetes with NLB DNS as control-plane-endpoint (enables HA)
 echo "=== Initializing Kubernetes cluster with HA support ==="
@@ -79,7 +84,7 @@ kubeadm init \
   --upload-certs \
   --pod-network-cidr=10.244.0.0/16 \
   --apiserver-advertise-address=$${IPADDR} \
-  --node-name=$${HOSTNAME}
+  --node-name=$${NODE_HOSTNAME}
 
 # Configure kubectl for root
 export KUBECONFIG=/etc/kubernetes/admin.conf
@@ -166,7 +171,7 @@ cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
 Kubernetes Master Node Setup Complete
 ===========================================
-Hostname: $${HOSTNAME}
+Hostname: $${NODE_HOSTNAME}
 IP: $${IPADDR}
 Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}
 Kubernetes: v1.30.0

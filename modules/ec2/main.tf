@@ -6,19 +6,26 @@ locals {
     s3_bucket              = var.s3_bucket_name
     aws_region             = var.aws_region
     control_plane_endpoint = var.control_plane_endpoint
+    node_hostname          = "master1"
   })
 
-  master_join_user_data = templatefile("${path.module}/../../scripts/master_join.sh", {
-    s3_bucket              = var.s3_bucket_name
-    aws_region             = var.aws_region
-    control_plane_endpoint = var.control_plane_endpoint
-  })
+  master_join_user_data = { for idx in range(1, var.master_count) :
+    idx => templatefile("${path.module}/../../scripts/master_join.sh", {
+      s3_bucket              = var.s3_bucket_name
+      aws_region             = var.aws_region
+      control_plane_endpoint = var.control_plane_endpoint
+      node_hostname          = "master${idx + 1}"
+    })
+  }
 
-  worker_user_data = templatefile("${path.module}/../../scripts/worker_setup.sh", {
-    s3_bucket              = var.s3_bucket_name
-    aws_region             = var.aws_region
-    control_plane_endpoint = var.control_plane_endpoint
-  })
+  worker_user_data = { for idx in range(var.worker_count) :
+    idx => templatefile("${path.module}/../../scripts/worker_setup.sh", {
+      s3_bucket              = var.s3_bucket_name
+      aws_region             = var.aws_region
+      control_plane_endpoint = var.control_plane_endpoint
+      node_hostname          = "worker${idx + 1}"
+    })
+  }
 
   repo_user_data = file("${path.module}/../../scripts/repo_setup.sh")
 }
@@ -97,7 +104,7 @@ resource "aws_instance" "master" {
   iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
 
   # First master initializes, others join
-  user_data = count.index == 0 ? local.master_init_user_data : local.master_join_user_data
+  user_data = count.index == 0 ? local.master_init_user_data : local.master_join_user_data[count.index]
 
   # Explicit dependency on IAM resources
   depends_on = [
@@ -143,7 +150,7 @@ resource "aws_instance" "worker" {
   vpc_security_group_ids = [var.k8s_security_group_id]
   iam_instance_profile   = aws_iam_instance_profile.k8s_node_profile.name
 
-  user_data = local.worker_user_data
+  user_data = local.worker_user_data[count.index]
 
   root_block_device {
     volume_type           = var.root_volume_type

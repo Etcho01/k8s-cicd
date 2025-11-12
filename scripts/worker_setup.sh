@@ -11,10 +11,16 @@ echo "=== [$(date)] Worker Setup Started ==="
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
 CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+NODE_HOSTNAME="${node_hostname}"
 
 echo "S3 Bucket: $${S3_BUCKET}"
 echo "AWS Region: $${AWS_REGION}"
 echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
+echo "Node Hostname: $${NODE_HOSTNAME}"
+
+# Set hostname
+hostnamectl set-hostname $${NODE_HOSTNAME}
+echo "127.0.0.1 $${NODE_HOSTNAME}" >> /etc/hosts
 
 # Update system
 apt-get update
@@ -88,14 +94,15 @@ echo "=== Join command content ==="
 cat /tmp/join.sh
 echo "==========================="
 
-# Execute join command directly (no modification needed - already has NLB DNS)
-echo "Joining cluster..."
-bash /tmp/join.sh
+# Execute join command with explicit node name
+echo "Joining cluster with hostname: $${NODE_HOSTNAME}..."
+bash /tmp/join.sh --node-name=$${NODE_HOSTNAME}
 
 cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
 Worker Node Joined
 ===========================================
+Hostname: $${NODE_HOSTNAME}
 Joined: $(date)
 Role: Worker
 Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}

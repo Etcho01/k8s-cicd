@@ -1,123 +1,93 @@
 # Root module outputs
-# Export important resource identifiers and endpoints
+# Professional output formatting for easy access and reference
 
-# Network outputs
+# ============================================================================
+# NETWORK INFORMATION
+# ============================================================================
+
 output "vpc_id" {
-  description = "ID of the VPC"
+  description = "VPC identifier"
   value       = module.network.vpc_id
 }
 
-output "s3_bucket_name" {
-  description = "S3 bucket name for Kubernetes config"
-  value       = aws_s3_bucket.k8s_config.id
-}
-
-output "s3_bucket_arn" {
-  description = "S3 bucket ARN for Kubernetes config"
-  value       = aws_s3_bucket.k8s_config.arn
-}
-
 output "public_subnet_ids" {
-  description = "IDs of public subnets"
+  description = "Public subnet identifiers"
   value       = module.network.public_subnet_ids
 }
 
 output "private_subnet_ids" {
-  description = "IDs of private subnets"
+  description = "Private subnet identifiers"
   value       = module.network.private_subnet_ids
 }
 
-output "internet_gateway_id" {
-  description = "ID of the Internet Gateway"
-  value       = module.network.internet_gateway_id
+# ============================================================================
+# LOAD BALANCER INFORMATION
+# ============================================================================
+
+output "load_balancer_dns" {
+  description = "Network Load Balancer DNS name"
+  value       = module.loadbalancer.nlb_dns_name
 }
 
-# Security group outputs
-output "k8s_security_group_id" {
-  description = "ID of Kubernetes cluster security group"
-  value       = module.securitygroups.k8s_security_group_id
+output "control_plane_endpoint" {
+  description = "Kubernetes control plane endpoint (for kubeconfig)"
+  value       = module.loadbalancer.control_plane_endpoint
 }
 
-output "repo_security_group_id" {
-  description = "ID of private repository security group"
-  value       = module.securitygroups.repo_security_group_id
+# ============================================================================
+# S3 BUCKET INFORMATION
+# ============================================================================
+
+output "s3_bucket_name" {
+  description = "S3 bucket for join commands"
+  value       = aws_s3_bucket.k8s_config.id
 }
 
-# EC2 instance outputs
-output "master_instance_ids" {
-  description = "IDs of Kubernetes master instances"
-  value       = module.ec2.master_instance_ids
-}
+# ============================================================================
+# KUBERNETES CLUSTER INFORMATION
+# ============================================================================
 
-output "master_private_ips" {
-  description = "Private IP addresses of master nodes"
-  value       = module.ec2.master_private_ips
-}
-
-output "master_public_ips" {
-  description = "Public IP addresses of master nodes"
-  value       = module.ec2.master_public_ips
-}
-
-output "worker_instance_ids" {
-  description = "IDs of Kubernetes worker instances"
-  value       = module.ec2.worker_instance_ids
-}
-
-output "worker_private_ips" {
-  description = "Private IP addresses of worker nodes"
-  value       = module.ec2.worker_private_ips
-}
-
-output "worker_public_ips" {
-  description = "Public IP addresses of worker nodes"
-  value       = module.ec2.worker_public_ips
-}
-
-output "repo_instance_id" {
-  description = "ID of private repository instance"
-  value       = module.ec2.repo_instance_id
-}
-
-output "repo_private_ip" {
-  description = "Private IP address of repository host"
-  value       = module.ec2.repo_private_ip
-}
-
-output "repo_public_ip" {
-  description = "Public IP address of repository host"
-  value       = module.ec2.repo_public_ip
-}
-
-# AMI information
-output "ami_id" {
-  description = "AMI ID used for instances"
-  value       = data.aws_ami.ubuntu.id
-}
-
-output "ami_name" {
-  description = "AMI name"
-  value       = data.aws_ami.ubuntu.name
-}
-
-# Kubernetes cluster information
-output "kubernetes_cluster_info" {
-  description = "Information for connecting to the Kubernetes cluster"
+output "cluster_info" {
+  description = "Kubernetes cluster summary"
   value = {
     control_plane_endpoint = module.loadbalancer.control_plane_endpoint
-    nlb_dns_name           = module.loadbalancer.nlb_dns_name
-    master_nodes           = module.ec2.master_private_ips
-    worker_nodes           = module.ec2.worker_private_ips
-    kubeconfig_note        = "SSH to any master and copy ~/.kube/config"
+    kubernetes_version     = "v1.30.0"
+    cni_plugin            = "Flannel"
+    pod_network_cidr      = "10.244.0.0/16"
+    master_count          = var.master_count
+    worker_count          = var.worker_count
   }
 }
 
-# Connection instructions
-output "ssh_connection_commands" {
-  description = "SSH commands to connect to instances"
+# ============================================================================
+# SSH CONNECTION COMMANDS
+# ============================================================================
+
+output "ssh_commands" {
+  description = "SSH commands to connect to each node"
   value = {
-    master1 = "ssh -i /path/to/${var.key_name}.pem ec2-user@${module.ec2.master_public_ips[0]}"
-    worker1 = "ssh -i /path/to/${var.key_name}.pem ec2-user@${module.ec2.worker_public_ips[0]}"
-    repo    = "ssh -i /path/to/${var.key_name}.pem ec2-user@${module.ec2.repo_public_ip}"
+    master1 = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.master_public_ips[0]}"
+    master2 = var.master_count >= 2 ? "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.master_public_ips[1]}" : "N/A (only 1 master deployed)"
+    master3 = var.master_count >= 3 ? "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.master_public_ips[2]}" : "N/A (only ${var.master_count} masters deployed)"
+    worker1 = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.worker_public_ips[0]}"
+    worker2 = var.worker_count >= 2 ? "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.worker_public_ips[1]}" : "N/A (only 1 worker deployed)"
+    repo    = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.repo_public_ip}"
   }
 }
+
+
+# ============================================================================
+# REPOSITORY HOST DETAILS
+# ============================================================================
+
+output "repository_host" {
+  description = "Private repository host connection details"
+  value = {
+    name          = "repo"
+    public_ip     = module.ec2.repo_public_ip
+    private_ip    = module.ec2.repo_private_ip
+    ssh           = "ssh -i wsl-terraform-key.pem ubuntu@${module.ec2.repo_public_ip}"
+    docker_registry = "http://${module.ec2.repo_private_ip}:5000"
+  }
+}
+

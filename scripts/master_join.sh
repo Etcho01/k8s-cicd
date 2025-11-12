@@ -11,10 +11,16 @@ echo "=== [$(date)] Additional Master Setup Started ==="
 S3_BUCKET="${s3_bucket}"
 AWS_REGION="${aws_region}"
 CONTROL_PLANE_ENDPOINT="${control_plane_endpoint}"
+NODE_HOSTNAME="${node_hostname}"
 
 echo "S3 Bucket: $${S3_BUCKET}"
 echo "AWS Region: $${AWS_REGION}"
 echo "Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}"
+echo "Node Hostname: $${NODE_HOSTNAME}"
+
+# Set hostname
+hostnamectl set-hostname $${NODE_HOSTNAME}
+echo "127.0.0.1 $${NODE_HOSTNAME}" >> /etc/hosts
 
 # Update system
 apt-get update
@@ -88,9 +94,9 @@ echo "=== Join command content ==="
 cat /tmp/join.sh
 echo "==========================="
 
-# Execute join command directly (no modification needed - already has NLB DNS)
-echo "Joining cluster as control-plane..."
-bash /tmp/join.sh
+# Execute join command with explicit node name
+echo "Joining cluster as control-plane with hostname: $${NODE_HOSTNAME}..."
+bash /tmp/join.sh --node-name=$${NODE_HOSTNAME}
 
 # Configure kubectl for ubuntu
 mkdir -p /home/ubuntu/.kube
@@ -101,6 +107,7 @@ cat <<EOFCOMPLETE > /home/ubuntu/SETUP_COMPLETE.txt
 ===========================================
 Additional Master Joined
 ===========================================
+Hostname: $${NODE_HOSTNAME}
 Joined: $(date)
 Role: Control Plane
 Control Plane Endpoint: $${CONTROL_PLANE_ENDPOINT}
