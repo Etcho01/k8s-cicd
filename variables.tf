@@ -92,3 +92,14 @@ variable "root_volume_type" {
   type        = string
   default     = "gp3"
 }
+
+variable "monitoring_cidr" {
+  description = "CIDR block allowed to access monitoring dashboards (Grafana/Prometheus). Use your public IP/32 for security."
+  type        = string
+  default     = "0.0.0.0/0" # ⚠️ CHANGE THIS to your IP in terraform.tfvars
+
+  validation {
+    condition     = can(cidrhost(var.monitoring_cidr, 0))
+    error_message = "monitoring_cidr must be a valid CIDR block (e.g., 203.0.113.1/32)"
+  }
+}

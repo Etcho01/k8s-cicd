@@ -1,7 +1,7 @@
-# Security Groups module variables
+# Security Groups Module - Variables
 
 variable "project_name" {
-  description = "Project name for resource naming"
+  description = "Name of the project"
   type        = string
 }
 
@@ -11,7 +11,7 @@ variable "environment" {
 }
 
 variable "vpc_id" {
-  description = "ID of the VPC where security groups will be created"
+  description = "ID of the VPC"
   type        = string
 }
 
@@ -21,11 +21,18 @@ variable "vpc_cidr" {
 }
 
 variable "admin_cidr" {
-  description = "CIDR block allowed for administrative SSH access"
+  description = "CIDR block allowed for admin access (SSH, K8s API)"
   type        = string
+}
+
+variable "monitoring_cidr" {
+  description = "CIDR block allowed to access monitoring UIs (Grafana, Prometheus)"
+  type        = string
+  default     = ""
 }
 
 variable "common_tags" {
   description = "Common tags to apply to all resources"
   type        = map(string)
+  default     = {}
 }

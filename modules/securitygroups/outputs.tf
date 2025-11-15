@@ -1,4 +1,4 @@
-# Security Groups module outputs
+# Security Groups Module - Outputs
 
 output "k8s_security_group_id" {
   description = "ID of the Kubernetes cluster security group"

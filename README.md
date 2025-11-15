@@ -1,8 +1,6 @@
 # High Availability Kubernetes Cluster on AWS
 
-> **Production-ready Kubernetes v1.30 cluster with 3 control plane nodes, Network Load Balancer, and automatic node joining via S3**
-
-(https://img.shields.io/badge/Kubernetes-v1.30.0-326CE5?logo=kubernetes) (https://kubernetes.io/)
+> **Production-ready Kubernetes v1.30 cluster with 3 control plane nodes, Network Load Balancer, automated node joining, and complete observability stack**
 ---
 
 ## 📋 Table of Contents
@@ -13,6 +11,7 @@
 - [Prerequisites](#prerequisites)
 - [Project Structure](#project-structure)
 - [Quick Start](#quick-start)
+- [Monitoring Stack](#monitoring-stack)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
 - [Post-Deployment](#post-deployment)
@@ -20,7 +19,6 @@
 - [Cost Estimation](#cost-estimation)
 - [Security](#security)
 - [Maintenance](#maintenance)
-- [Contributing](#contributing)
 
 ---
 
@@ -33,16 +31,60 @@ This project provides a complete Infrastructure as Code (IaC) solution for deplo
 - **Network Load Balancer** for stable API endpoint
 - **Automatic Node Joining** via S3 (no manual intervention)
 - **Private Docker Registry** for container images
-- **Full Observability** with proper tagging and naming
+- **Complete Observability** with Prometheus + Grafana
+- **Custom Node Hostnames** (master1-3, worker1-2)
 
 ### Why This Solution?
 
 ✅ **Production-Ready**: Follows official Kubernetes HA documentation  
-✅ **Fully Automated**: Zero manual steps after `terraform apply`  
+✅ **Fully Automated**: Zero manual steps after deployment  
+✅ **Complete Monitoring**: Enterprise-grade observability included  
 ✅ **Battle-Tested**: Uses Ubuntu 22.04 LTS and stable K8s versions  
 ✅ **Infrastructure as Code**: Version-controlled, repeatable deployments  
 
 ---
+
+## 🏗️ Architecture
+
+### High-Level Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         AWS Cloud (eu-west-1)                    │
+│                                                                  │
+│  ┌────────────────────────────────────────────────────────────┐ │
+│  │                    VPC (10.0.0.0/16)                        │ │
+│  │                                                             │ │
+│  │  ┌─────────────────────────────────────────────────────┐  │ │
+│  │  │              Network Load Balancer                   │  │ │
+│  │  │         (Kubernetes API Endpoint)                    │  │ │
+│  │  │    k8s-api-nlb-xxx.elb.eu-west-1.amazonaws.com      │  │ │
+│  │  └──────────────────┬──────────────────────────────────┘  │ │
+│  │                     │                                      │ │
+│  │         ┌───────────┼───────────┬──────────────┐          │ │
+│  │         │           │           │              │          │ │
+│  │    ┌────▼───┐  ┌───▼────┐  ┌──▼─────┐   ┌───▼────┐     │ │
+│  │    │Master1 │  │Master2 │  │Master3 │   │ Worker │     │ │
+│  │    │Control │  │Control │  │Control │   │  Nodes │     │ │
+│  │    │ Plane  │  │ Plane  │  │ Plane  │   │ (x2)   │     │ │
+│  │    └────────┘  └────────┘  └────────┘   └────────┘     │ │
+│  │         │                                      │          │ │
+│  │         └──────────────────────────────────────┘          │ │
+│  │                          │                                │ │
+│  │              ┌───────────▼───────────┐                   │ │
+│  │              │   Monitoring Stack    │                   │ │
+│  │              │  Prometheus + Grafana │                   │ │
+│  │              │    Node Exporters     │                   │ │
+│  │              └───────────────────────┘                   │ │
+│  │                                                           │ │
+│  │  ┌────────────┐         ┌─────────────────┐            │ │
+│  │  │  Registry  │         │   S3 Bucket     │            │ │
+│  │  │   Server   │         │ (Join Commands) │            │ │
+│  │  └────────────┘         └─────────────────┘            │ │
+│  └──────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────┘
+```
+
 ### Network Architecture
 
 ```
@@ -58,11 +100,37 @@ VPC (10.0.0.0/16)
 └── S3 Bucket (join commands storage)
 ```
 
+### Monitoring Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Monitoring Namespace                      │
+│                                                              │
+│  ┌──────────────┐      ┌──────────────┐                    │
+│  │  Prometheus  │◄─────┤   Exporters  │                    │
+│  │   Server     │      │              │                    │
+│  │  (Metrics    │      │ - Node       │                    │
+│  │   Storage)   │      │ - kube-state │                    │
+│  └──────┬───────┘      │ - cAdvisor   │                    │
+│         │              └──────────────┘                    │
+│         │                                                   │
+│         ▼                                                   │
+│  ┌──────────────┐                                          │
+│  │   Grafana    │ (Visualization)                          │
+│  │  Dashboards  │ http://<node-ip>:30300                  │
+│  └──────────────┘                                          │
+│                                                              │
+│  Monitors: All 5 nodes (masters + workers)                 │
+│  Retention: 15 days                                         │
+│  Metrics: CPU, Memory, Disk, Network, K8s Objects          │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## ✨ Features
 
-### Core Features
+### Core Kubernetes Features
 - ✅ **High Availability**: 3 control plane nodes with automatic failover
 - ✅ **Network Load Balancer**: Stable endpoint for API server (--control-plane-endpoint)
 - ✅ **Automatic Node Joining**: S3-based join command distribution
@@ -71,18 +139,29 @@ VPC (10.0.0.0/16)
 - ✅ **Ubuntu 22.04 LTS**: Long-term support until 2027
 - ✅ **Kubernetes 1.30**: Latest stable release
 
+### Monitoring & Observability
+- ✅ **Prometheus**: Metrics collection and storage (15-day retention)
+- ✅ **Grafana**: Beautiful dashboards and visualization
+- ✅ **Node Exporter**: Hardware metrics (CPU, RAM, disk, network)
+- ✅ **kube-state-metrics**: Kubernetes object metrics
+- ✅ **Pre-configured Dashboards**: Import and use immediately
+- ✅ **Automated Installation**: One-script deployment
+- ✅ **Real-time Monitoring**: All 5 nodes monitored continuously
+
 ### Infrastructure Features
 - ✅ **Modular Terraform**: Reusable modules (network, security, ec2, loadbalancer)
 - ✅ **S3 State Backend**: Remote state with locking via DynamoDB
 - ✅ **Encrypted Storage**: EBS volumes encrypted at rest
 - ✅ **IAM Roles**: Instance profiles for secure AWS API access
 - ✅ **Security Groups**: Least-privilege network access
+- ✅ **Monitoring Ports**: Grafana (30300), Prometheus (30900)
 - ✅ **Proper Tagging**: Organized resource management
 
 ### Operational Features
 - ✅ **Professional Outputs**: Clear SSH commands and cluster info
 - ✅ **Private Docker Registry**: Self-hosted container registry
 - ✅ **Complete Documentation**: Comprehensive guides and troubleshooting
+- ✅ **Automation Scripts**: One-command monitoring installation
 - ✅ **Validation Scripts**: Pre-deployment checks
 
 ---
@@ -145,7 +224,8 @@ k8s-cicd/
 │   ├── master_setup.sh              # First master initialization
 │   ├── master_join.sh               # Additional masters join
 │   ├── worker_setup.sh              # Workers join
-│   ├── repo_setup.sh                # Repository host setup
+│   ├── repo_setup.sh                # Docker registry setup
+│   ├── install-monitoring.sh        # Monitoring automation (NEW)
 │   └── setup-terraform-backend.sh   # S3/DynamoDB creation
 │
 ├── modules/
@@ -155,7 +235,7 @@ k8s-cicd/
 │   │   └── outputs.tf
 │   │
 │   ├── securitygroups/              # Security groups
-│   │   ├── main.tf
+│   │   ├── main.tf                  # (Updated with monitoring ports)
 │   │   ├── variables.tf
 │   │   └── outputs.tf
 │   │
@@ -170,9 +250,9 @@ k8s-cicd/
 │       └── outputs.tf
 │
 └── docs/                            # Additional documentation
-    ├── HA_DEPLOYMENT_GUIDE.md
-    ├── TROUBLESHOOTING.md
-    └── CHANGELOG.md
+    ├── PROMETHEUS-SETUP.md          # Detailed monitoring guide
+    ├── MONITORING-COMMANDS.md       # Monitoring cheat sheet
+    └── TROUBLESHOOTING.md          # Common issues and fixes
 ```
 
 ---
@@ -206,10 +286,11 @@ vim terraform.tfvars
 
 **Required Changes:**
 ```hcl
-admin_cidr = "YOUR_PUBLIC_IP/32"  # Get your IP: curl ifconfig.me
+admin_cidr      = "YOUR_PUBLIC_IP/32"  # Get: curl ifconfig.me
+monitoring_cidr = "YOUR_PUBLIC_IP/32"  # For Grafana/Prometheus access
 ```
 
-### 4. Deploy
+### 4. Deploy Infrastructure
 ```bash
 # Initialize Terraform
 terraform init
@@ -220,29 +301,134 @@ terraform validate
 # Preview changes
 terraform plan
 
-# Deploy infrastructure
+# Deploy infrastructure (takes ~15 minutes)
 terraform apply
 ```
 
-### 5. Access Cluster
+### 5. Wait for Cluster Initialization
 ```bash
-# Wait ~15 minutes for cluster initialization
+# The cluster takes ~15 minutes to fully initialize
+# - Minutes 0-2:   Infrastructure creation
+# - Minutes 2-10:  Master1 initializes Kubernetes
+# - Minutes 10-13: Masters 2-3 join cluster
+# - Minutes 13-15: Workers 1-2 join cluster
 
-# SSH to master1
+# Check progress
 ssh -i wsl-terraform-key.pem ubuntu@$(terraform output -json master_nodes | jq -r '.[0].public_ip')
-
-# Check cluster
 kubectl get nodes
 ```
 
-**Expected Output:**
+### 6. Install Monitoring Stack
+```bash
+# Still on master1, download and run monitoring installer
+curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/main/scripts/install-monitoring.sh -o install-monitoring.sh
+chmod +x install-monitoring.sh
+./install-monitoring.sh
+
+# Or if you have the file locally
+./scripts/install-monitoring.sh
+
+# Wait 2-3 minutes for installation
 ```
-NAME      STATUS   ROLES           AGE   VERSION
-master1   Ready    control-plane   10m   v1.30.0
-master2   Ready    control-plane   8m    v1.30.0
-master3   Ready    control-plane   8m    v1.30.0
-worker1   Ready    <none>          6m    v1.30.0
-worker2   Ready    <none>          6m    v1.30.0
+
+### 7. Access Grafana
+```bash
+# Get node IP from installer output or run:
+kubectl get nodes -o wide
+
+# Open browser: http://<node-ip>:30300
+# Login: admin / admin123
+```
+
+### 8. Import Dashboards
+In Grafana:
+1. Click **☰** → **Dashboards** → **Import**
+2. Enter dashboard ID: **1860** (Node Exporter Full)
+3. Click **Load** → **Import**
+4. Repeat for IDs: **15760**, **14623**
+
+**🎉 Your cluster with complete monitoring is ready!**
+
+---
+
+## 📊 Monitoring Stack
+
+### What Gets Installed
+
+The monitoring stack includes:
+
+| Component | Purpose | Port | Access |
+|-----------|---------|------|--------|
+| **Prometheus** | Metrics collection and storage | 30900 | http://node-ip:30900 |
+| **Grafana** | Visualization and dashboards | 30300 | http://node-ip:30300 |
+| **Node Exporter** | Hardware metrics (5 pods, 1 per node) | 9100 | Internal only |
+| **kube-state-metrics** | Kubernetes object metrics | 8080 | Internal only |
+| **Alertmanager** | Alert management | 9093 | Internal only |
+
+### Key Metrics Monitored
+
+**Per-Node Metrics:**
+- CPU usage (per core and total)
+- Memory usage (used, free, cached, buffers)
+- Disk I/O (IOPS, throughput, latency)
+- Network traffic (bandwidth, packets, errors)
+- Disk space usage
+- System load averages
+- Process counts
+
+**Cluster-Wide Metrics:**
+- Total pods running
+- Pods per namespace
+- Resource usage by namespace
+- Failed/Pending pods
+- Container restarts
+- API server performance
+- etcd performance
+
+### Automated Installation
+
+The `install-monitoring.sh` script automates everything:
+
+```bash
+# What it does:
+✓ Checks cluster health
+✓ Installs Helm if needed
+✓ Adds Prometheus repository
+✓ Creates monitoring namespace
+✓ Generates optimized configuration (reduced memory for t3.small)
+✓ Installs Prometheus + Grafana + exporters
+✓ Waits for pods to be ready
+✓ Displays access information
+
+# Optimized for your cluster:
+- Memory: 512Mi request, 1Gi limit (fits t3.small instances)
+- Storage: emptyDir (no PVC needed)
+- Monitoring: All 5 nodes (masters + workers)
+- Retention: 15 days of metrics
+```
+
+### Recommended Dashboards
+
+| ID | Name | What It Shows |
+|----|------|---------------|
+| **1860** | Node Exporter Full | Detailed hardware metrics per node |
+| **15760** | Kubernetes Cluster | Cluster-wide overview and health |
+| **14623** | Kubernetes Pod Resources | Pod-level CPU, memory, network |
+
+### Quick Access
+
+```bash
+# Check monitoring pods
+kubectl get pods -n monitoring
+
+# View Grafana logs
+kubectl logs -n monitoring -l app.kubernetes.io/name=grafana
+
+# Check Prometheus targets
+# Open: http://<node-ip>:30900/targets
+
+# Restart Grafana (if needed)
+kubectl rollout restart deployment/prometheus-grafana -n monitoring
 ```
 
 ---
@@ -253,9 +439,9 @@ worker2   Ready    <none>          6m    v1.30.0
 
 ```hcl
 # AWS Configuration
-aws_region  = "eu-west-1"           # AWS region
-environment = "dev"                  # Environment name
-owner       = "your-name"            # Resource owner
+aws_region  = "eu-west-1"
+environment = "dev"
+owner       = "your-name"
 
 # Network Configuration
 vpc_cidr             = "10.0.0.0/16"
@@ -263,91 +449,60 @@ public_subnet_cidrs  = ["10.0.1.0/24", "10.0.2.0/24"]
 private_subnet_cidrs = ["10.0.10.0/24", "10.0.11.0/24"]
 
 # Cluster Configuration
-master_count = 3                     # Number of control plane nodes
-worker_count = 2                     # Number of worker nodes
+master_count = 3
+worker_count = 2
 
 # Instance Configuration
-instance_type    = "t3.small"        # Instance size
-root_volume_size = 20                # Root disk size (GB)
-root_volume_type = "gp3"             # EBS volume type
+instance_type    = "t3.small"       # 2 vCPU, 2GB RAM
+root_volume_size = 20               # GB
+root_volume_type = "gp3"
 
 # Security
-key_name   = "wsl-terraform-key"     # SSH key name
-admin_cidr = "YOUR_IP/32"            # Your public IP
+key_name        = "wsl-terraform-key"
+admin_cidr      = "YOUR_IP/32"      # For SSH and K8s API
+monitoring_cidr = "YOUR_IP/32"      # For Grafana/Prometheus
 ```
 
-### Customization Options
+### Security Group Ports
 
-#### Change Instance Type
-```hcl
-# For more resources
-instance_type = "t3.medium"  # 2 vCPU, 4 GB RAM
+The following ports are automatically configured:
 
-# For production
-instance_type = "t3.large"   # 2 vCPU, 8 GB RAM
-```
+**Kubernetes Cluster:**
+- 6443 (API Server)
+- 2379-2380 (etcd)
+- 10250 (Kubelet)
+- 10257 (Controller Manager)
+- 10259 (Scheduler)
+- 8472 (Flannel VXLAN)
+- 30000-32767 (NodePort services)
 
-#### Adjust Cluster Size
-```hcl
-# Smaller cluster
-master_count = 1
-worker_count = 1
+**Monitoring Stack:**
+- 30300 (Grafana UI) - from your IP only
+- 30900 (Prometheus UI) - from your IP only
+- 9100 (Node Exporter) - internal only
+- 9090 (Prometheus) - internal only
+- 8080 (kube-state-metrics) - internal only
 
-# Larger cluster
-master_count = 3
-worker_count = 5
-```
+**Docker Registry:**
+- 5000 (Registry HTTPS) - from cluster nodes only
 
 ---
 
 ## 🎯 Deployment
 
-### Full Deployment Process
+### Full Deployment Timeline
 
-#### Step 1: Pre-Deployment Validation
-```bash
-# Check AWS credentials
-aws sts get-caller-identity
-
-# Validate Terraform syntax
-terraform validate
-
-# Check format
-terraform fmt -check -recursive
-```
-
-#### Step 2: Plan Review
-```bash
-# Generate and review plan
-terraform plan -out=tfplan
-
-# Expected resources: ~35-40
-```
-
-#### Step 3: Apply Infrastructure
-```bash
-# Deploy
-terraform apply tfplan
-
-# Or with auto-approve
-terraform apply -auto-approve
-```
-
-#### Step 4: Monitor Deployment
-```bash
-# Watch Terraform progress
-# Total time: ~15 minutes
-
-# Timeline:
-# 0-2 min:   VPC, subnets, NLB, S3 bucket
-# 2-10 min:  Master1 initializes Kubernetes
-# 10-13 min: Masters 2-3 join cluster
-# 13-15 min: Workers 1-2 join cluster
-```
+| Time | Phase | What's Happening |
+|------|-------|------------------|
+| 0-2 min | Infrastructure | VPC, subnets, NLB, S3, security groups |
+| 2-10 min | Master1 | Kubernetes initialization, join commands to S3 |
+| 10-13 min | Masters 2-3 | Join cluster as control plane nodes |
+| 13-15 min | Workers 1-2 | Join cluster as worker nodes |
+| 15+ min | Monitoring | Install Prometheus + Grafana (2-3 min) |
 
 ### Deployment Outputs
 
-After deployment, you'll see professional formatted outputs:
+After `terraform apply`, you'll see:
 
 ```
 Outputs:
@@ -360,180 +515,110 @@ deployment_summary = <<EOT
 
 📋 CLUSTER INFORMATION
 ├─ Kubernetes Version: v1.30.0
-├─ Control Plane Endpoint: cicd-k8s-dev-k8s-api-nlb-xxx.elb.eu-west-1.amazonaws.com:6443
+├─ Control Plane Endpoint: k8s-api-nlb-xxx.elb.eu-west-1.amazonaws.com:6443
 ├─ CNI Plugin: Flannel
 ├─ Pod Network: 10.244.0.0/16
 └─ Nodes: 3 masters, 2 workers
+
+🖥️  MASTER NODES
+├─ master1: 54.194.123.45 (10.0.1.10)
+├─ master2: 54.194.123.46 (10.0.1.20)
+└─ master3: 54.194.123.47 (10.0.1.30)
+
+👷 WORKER NODES
+├─ worker1: 54.194.123.48 (10.0.2.10)
+└─ worker2: 54.194.123.49 (10.0.2.20)
 
 📦 REPOSITORY HOST
 └─ repo: 54.194.123.50 (Docker Registry: http://10.0.1.50:5000)
 
 📚 NEXT STEPS
 1. Wait ~15 minutes for cluster initialization
-2. SSH to master1 and run: kubectl get nodes
-3. All nodes should show "Ready" status
-4. Deploy your applications!
+2. SSH to master1: ssh -i wsl-terraform-key.pem ubuntu@54.194.123.45
+3. Verify cluster: kubectl get nodes
+4. Install monitoring: ./install-monitoring.sh
+5. Access Grafana: http://54.194.123.45:30300
 
 ═══════════════════════════════════════════════════════════════════════════
 EOT
-
-ssh_commands = {
-  master1 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.45"
-  master2 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.46"
-  master3 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.47"
-  worker1 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.48"
-  worker2 = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.49"
-  repo    = "ssh -i wsl-terraform-key.pem ubuntu@54.194.123.50"
-}
 ```
 
 ---
 
 ## 🔍 Post-Deployment
 
-### Verify Cluster Health
+### Verify Cluster
 
 ```bash
 # SSH to master1
 ssh -i wsl-terraform-key.pem ubuntu@<MASTER1_IP>
 
-# Check all nodes
-kubectl get nodes -o wide
+# Check nodes (should all be Ready)
+kubectl get nodes
 
-# Check system pods
+# Check system pods (should all be Running)
 kubectl get pods -A
 
 # Check cluster info
 kubectl cluster-info
-
-# Check component status
-kubectl get componentstatuses
 ```
 
-### Expected Cluster State
+### Install Monitoring
 
 ```bash
-# All nodes should be Ready
-$ kubectl get nodes
-NAME      STATUS   ROLES           AGE   VERSION
-master1   Ready    control-plane   10m   v1.30.0
-master2   Ready    control-plane   8m    v1.30.0
-master3   Ready    control-plane   8m    v1.30.0
-worker1   Ready    <none>          6m    v1.30.0
-worker2   Ready    <none>          6m    v1.30.0
+# Download and run installer
+curl -fsSL https://raw.githubusercontent.com/YOUR_REPO/main/scripts/install-monitoring.sh -o install-monitoring.sh
+chmod +x install-monitoring.sh
+./install-monitoring.sh
 
-# All system pods should be Running
-$ kubectl get pods -A
-NAMESPACE      NAME                              READY   STATUS    RESTARTS   AGE
-kube-flannel   kube-flannel-ds-xxxxx             1/1     Running   0          9m
-kube-system    coredns-xxxxx                     1/1     Running   0          10m
-kube-system    etcd-master1                      1/1     Running   0          10m
-kube-system    etcd-master2                      1/1     Running   0          8m
-kube-system    etcd-master3                      1/1     Running   0          8m
-kube-system    kube-apiserver-master1            1/1     Running   0          10m
-kube-system    kube-apiserver-master2            1/1     Running   0          8m
-kube-system    kube-apiserver-master3            1/1     Running   0          8m
-...
+# Or if file is local
+./scripts/install-monitoring.sh
+
+# Wait 2-3 minutes for installation
 ```
 
-### Get Kubeconfig
+### Access Monitoring
 
 ```bash
-# From master node
-cat ~/.kube/config
+# Get node IP
+kubectl get nodes -o wide
 
-# Or copy to local machine
-scp -i wsl-terraform-key.pem ubuntu@<MASTER1_IP>:~/.kube/config ./kubeconfig
+# Access in browser:
+# Grafana:    http://<node-ip>:30300 (admin/admin123)
+# Prometheus: http://<node-ip>:30900
 
-# Update server URL to use public IP
-sed -i 's/https:\/\/[0-9.]*/https://<MASTER1_PUBLIC_IP>/' kubeconfig
+# Import dashboards
+# IDs: 1860, 15760, 14623
 
-# Use locally
-export KUBECONFIG=./kubeconfig
-kubectl get nodes
-```
-
-### Test Deployment
-
-```bash
-# Deploy nginx
-kubectl create deployment nginx --image=nginx --replicas=3
-
-# Check pods
-kubectl get pods
-
-# Expose service
-kubectl expose deployment nginx --port=80 --type=NodePort
-
-# Get service details
-kubectl get svc nginx
-
-# Test access
-curl http://localhost:<NODEPORT>
-```
-
-### Test Docker Registry
-
-```bash
-# SSH to repository host
-ssh -i wsl-terraform-key.pem ubuntu@<REPO_IP>
-
-# Test registry
-docker pull hello-world
-docker tag hello-world localhost:5000/hello-world
-docker push localhost:5000/hello-world
-
-# List images
-curl http://localhost:5000/v2/_catalog
+# Destroy cluster
+terraform destroy
 ```
 
 ---
 
-### Development Setup
-```bash
-# Clone repository
-git clone <repo-url>
-cd k8s-cicd
+## 🚀 Getting Started Checklist
 
-# Create feature branch
-git checkout -b feature/your-feature
+Before you begin, make sure you have:
 
-# Make changes
-# Test thoroughly
+- [ ] AWS account with appropriate permissions
+- [ ] AWS CLI configured (`aws configure`)
+- [ ] Terraform installed (>= 1.7.0)
+- [ ] SSH key created in AWS
+- [ ] Your public IP noted (`curl ifconfig.me`)
+- [ ] Git repository cloned
 
-# Commit and push
-git add .
-git commit -m "Description of changes"
-git push origin feature/your-feature
-```
+**Deployment Steps:**
 
-### Code Standards
-- Use proper Terraform formatting: `terraform fmt -recursive`
-- Validate before committing: `terraform validate`
-- Add comments for complex logic
-- Update documentation for new features
-- Test in dev environment before production
-
----
-
-## 📚 Additional Resources
-
-### Documentation
-- [Kubernetes Official Docs](https://kubernetes.io/docs/)
-- [Terraform AWS Provider](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [kubeadm HA Setup](https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/high-availability/)
-- [Flannel CNI](https://github.com/flannel-io/flannel)
-
-### Related Projects
-- [Cluster Autoscaler](https://github.com/kubernetes/autoscaler)
-- [Metrics Server](https://github.com/kubernetes-sigs/metrics-server)
-- [Kubernetes Dashboard](https://github.com/kubernetes/dashboard)
-
----
-
-## 📄 License
-
-This project is for educational and demonstration purposes.
+1. [ ] Setup Terraform backend (`./scripts/setup-terraform-backend.sh`)
+2. [ ] Configure `terraform.tfvars` with your IP
+3. [ ] Run `terraform init`
+4. [ ] Run `terraform apply`
+5. [ ] Wait ~15 minutes for cluster initialization
+6. [ ] SSH to master1 and verify cluster (`kubectl get nodes`)
+7. [ ] Run `./install-monitoring.sh` on master1
+8. [ ] Access Grafana at `http://<node-ip>:30300`
+9. [ ] Import dashboards (1860, 15760, 14623)
+10. [ ] Start deploying your applications!
 
 ---
 
@@ -555,5 +640,3 @@ This project is for educational and demonstration purposes.
 **OS:** Ubuntu 22.04 LTS
 
 ---
-
-**🚀 Ready to deploy? Run `terraform apply` and have your cluster in 15 minutes!**

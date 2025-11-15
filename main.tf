@@ -50,12 +50,13 @@ module "network" {
 module "securitygroups" {
   source = "./modules/securitygroups"
 
-  project_name = var.project_name
-  environment  = var.environment
-  vpc_id       = module.network.vpc_id
-  vpc_cidr     = var.vpc_cidr
-  admin_cidr   = var.admin_cidr
-  common_tags  = local.common_tags
+  project_name    = var.project_name
+  environment     = var.environment
+  vpc_id          = module.network.vpc_id
+  vpc_cidr        = var.vpc_cidr
+  admin_cidr      = var.admin_cidr
+  monitoring_cidr = var.monitoring_cidr # NEW: For Grafana/Prometheus access
+  common_tags     = local.common_tags
 }
 
 # S3 bucket for sharing join commands between nodes
