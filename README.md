@@ -1,27 +1,7 @@
 # High Availability Kubernetes Cluster on AWS
 
 > **Production-ready Kubernetes v1.30 cluster with 3 control plane nodes, Network Load Balancer, automated node joining, and complete observability stack**
----
-
-## 📋 Table of Contents
-
-- [Overview](#overview)
-- [Architecture](#architecture)
-- [Features](#features)
-- [Prerequisites](#prerequisites)
-- [Project Structure](#project-structure)
-- [Quick Start](#quick-start)
-- [Monitoring Stack](#monitoring-stack)
-- [Configuration](#configuration)
-- [Deployment](#deployment)
-- [Post-Deployment](#post-deployment)
-- [Troubleshooting](#troubleshooting)
-- [Cost Estimation](#cost-estimation)
-- [Security](#security)
-- [Maintenance](#maintenance)
-
----
-
+--
 ## 🎯 Overview
 
 This project provides a complete Infrastructure as Code (IaC) solution for deploying a **production-ready High Availability Kubernetes cluster** on AWS using Terraform. The cluster features:
